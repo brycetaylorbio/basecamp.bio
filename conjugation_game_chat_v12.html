@@ -1,0 +1,1470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Microbial Asteroids Demo — varied gene distances build</title>
+  <style>
+    :root {
+      --bg: #071017;
+      --panel: rgba(8, 20, 30, 0.82);
+      --ink: #e9fbff;
+      --muted: #9bb8c3;
+      --accent: #89ffd6;
+      --danger: #ff6b7a;
+      --warn: #ffd166;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: radial-gradient(circle at 50% 30%, #102a38 0%, #071017 55%, #020407 100%);
+      color: var(--ink);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+
+    #wrap {
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      gap: 10px;
+    }
+
+    canvas {
+      border: 1px solid rgba(137, 255, 214, 0.25);
+      border-radius: 16px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.55), inset 0 0 40px rgba(137, 255, 214, 0.04);
+      background: #071017;
+      max-width: calc(100vw - 28px);
+      max-height: calc(100vh - 28px);
+      touch-action: none;
+    }
+
+    .caption {
+      position: fixed;
+      left: 18px;
+      bottom: 14px;
+      color: var(--muted);
+      font-size: 13px;
+      letter-spacing: 0.01em;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="game" width="1380" height="640" aria-label="Microbial Asteroids Demo"></canvas>
+  </div>
+  <div class="caption">WASD move · Space attach/detach pilus · Scroll/touchpad frantically to transfer DNA · R reset</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  // Keep the original 960×640 gameplay field and reserve a right-side HUD column.
+  const W = 960;
+  const H = canvas.height;
+  const SIDEBAR_X = W;
+  const SIDEBAR_W = canvas.width - W;
+
+  const keys = new Set();
+  let lastTime = performance.now();
+  let gameState = "play"; // play | levelComplete | lose
+  let endMessage = "";
+
+  const BUILD_LABEL = "Build 2026-06-08J — varied gene distances";
+
+  const CONFIG = {
+    playerRadius: 16,
+    microbeRadius: 24,
+    debrisDamagePlayer: 25,
+    debrisDamageMicrobe: 34,
+    pilusDamage: 16,
+    maxHealth: 100,
+    conjugationRange: 88,
+    maxPilusLength: 150,
+    acceleration: 430,
+    damping: 0.985,
+    maxSpeed: 260,
+    invulnSeconds: 0.85,
+    // Faster conjugation build: requires 1/5th as much scrolling as v6.
+    wheelBaseTransfer: 0.0004,
+    wheelScaleTransfer: 0.000028,
+    wheelMaxDelta: 170,
+    maxTransferProgress: 1.85,
+    detachAfterCompleteRange: 96,
+    scrollPulseSeconds: 0.18
+  };
+
+  const colors = {
+    player: "#89ffd6",
+    playerCore: "#d7fff4",
+    microbe: "#8ab6ff",
+    microbeDone: "#c8ff7a",
+    debris: "#d7c5a8",
+    debrisEdge: "#806e5a",
+    danger: "#ff6b7a",
+    warn: "#ffd166",
+    ink: "#e9fbff",
+    muted: "#9bb8c3",
+    panel: "rgba(5, 16, 24, 0.70)",
+    pilus: "#f7e27b",
+    gene: "#ff84d7",
+    ori: "#89ffd6",
+    genomeBackbone: "rgba(233, 251, 255, 0.22)"
+  };
+
+  const GENE_LIBRARY = [
+    // Positions are fractional distance around the circular F plasmid from oriT.
+    // Early genes are quick wins; late genes preserve the high-pressure long transfer challenge.
+    { id: "traA", name: "traA", color: "#89ffd6", position: 0.10 },
+    { id: "lacZ", name: "lacZ", color: "#ff9f6e", position: 0.19 },
+    { id: "tetR", name: "tetR", color: "#b88cff", position: 0.36 },
+    { id: "luxR", name: "luxR", color: "#ff84d7", position: 0.58 },
+    { id: "catR", name: "catR", color: "#ffd166", position: 0.70 },
+    { id: "amyA", name: "amyA", color: "#8ab6ff", position: 0.82 },
+    { id: "fixN", name: "fixN", color: "#c8ff7a", position: 0.93 }
+  ];
+
+  const audio = makeAudioController();
+
+  function initialLevelPlan() {
+    return { microbeCount: 2, debrisCount: 2, added: "starter culture" };
+  }
+
+  function makeNextLevelPlan(previousPlan) {
+    const plan = { ...previousPlan };
+    // Procedural escalation: each cleared level randomly adds either a recipient microbe or a debris hazard.
+    // A tiny bias prevents one category from getting wildly ahead of the other.
+    let addMicrobe = Math.random() < 0.5;
+    if (plan.microbeCount - plan.debrisCount >= 2) addMicrobe = false;
+    if (plan.debrisCount - plan.microbeCount >= 2) addMicrobe = true;
+
+    if (addMicrobe) {
+      plan.microbeCount += 1;
+      plan.added = "+1 recipient microbe";
+    } else {
+      plan.debrisCount += 1;
+      plan.added = "+1 debris hazard";
+    }
+    return plan;
+  }
+
+  function makeLevelState(level, levelPlan = initialLevelPlan(), score = 0, missed = 0) {
+    const seed = 1000 + level * 137 + levelPlan.microbeCount * 17 + levelPlan.debrisCount * 29;
+    const microbes = makeLevelMicrobes(level, levelPlan.microbeCount, seed);
+    const debris = makeLevelDebris(level, levelPlan.debrisCount, seed + 500);
+
+    return {
+      level,
+      levelPlan: { ...levelPlan },
+      score,
+      missed,
+      nextPlan: null,
+      levelAdvanceTimer: 0,
+      player: {
+        x: W * 0.5,
+        y: H * 0.56,
+        vx: 0,
+        vy: 0,
+        angle: -Math.PI / 2,
+        radius: CONFIG.playerRadius,
+        health: CONFIG.maxHealth,
+        invuln: 0,
+        flash: 0,
+        flagellaPhase: level * 0.7
+      },
+      microbes,
+      debris,
+      conjugation: null,
+      message: `Level ${level}: deliver the right colored plasmid gene to each viable recipient. Lost recipients reduce your possible score, but only donor death ends the run.`,
+      messageTimer: 5.0,
+      stars: makeStars(90)
+    };
+  }
+
+  function makeLevelMicrobes(level, count, seed) {
+    const microbes = [];
+    const cx = W * 0.5;
+    const cy = H * 0.48;
+    for (let i = 0; i < count; i++) {
+      const gene = GENE_LIBRARY[(i + level - 1) % GENE_LIBRARY.length];
+      const angle = (Math.PI * 2 * i) / count + 0.45 + level * 0.31;
+      const rx = W * (0.27 + pseudoRandom(seed + i * 19) * 0.09);
+      const ry = H * (0.21 + pseudoRandom(seed + i * 23) * 0.08);
+      const jitterX = (pseudoRandom(seed + i * 31) - 0.5) * 44;
+      const jitterY = (pseudoRandom(seed + i * 37) - 0.5) * 34;
+      microbes.push({
+        id: `M${level}-${i}`,
+        name: `Microbe ${i + 1}`,
+        x: clamp(cx + Math.cos(angle) * rx + jitterX, 80, W - 80),
+        y: clamp(cy + Math.sin(angle) * ry + jitterY, 96, H - 96),
+        radius: CONFIG.microbeRadius,
+        health: CONFIG.maxHealth,
+        conjugated: false,
+        invuln: 0,
+        wiggle: pseudoRandom(seed + i * 41) * Math.PI * 2,
+        requiredGene: gene
+      });
+    }
+    return microbes;
+  }
+
+  function makeLevelDebris(level, count, seed) {
+    const debris = [];
+    for (let i = 0; i < count; i++) {
+      const edge = i % 4;
+      const margin = 48;
+      let x, y;
+      if (edge === 0) { x = margin; y = H * (0.20 + pseudoRandom(seed + i * 13) * 0.65); }
+      else if (edge === 1) { x = W - margin; y = H * (0.20 + pseudoRandom(seed + i * 13) * 0.65); }
+      else if (edge === 2) { x = W * (0.18 + pseudoRandom(seed + i * 13) * 0.64); y = margin; }
+      else { x = W * (0.18 + pseudoRandom(seed + i * 13) * 0.64); y = H - margin; }
+
+      const angleToCenter = Math.atan2(H * 0.5 - y, W * 0.5 - x);
+      const angleJitter = (pseudoRandom(seed + i * 17) - 0.5) * 1.45;
+      // About 5/6 of the prior build's debris speed, with a little level-based variety.
+      const speed = (105 + pseudoRandom(seed + i * 43) * 30 + Math.min(28, level * 3)) * (5 / 6);
+      const angle = angleToCenter + angleJitter;
+      // Normal debris is 50% larger than v8. From level 4 onward, some chunks are large hazards.
+      const largeChance = level <= 3 ? 0 : Math.min(0.18 + (level - 4) * 0.04, 0.55);
+      const isLarge = pseudoRandom(seed + i * 53) < largeChance;
+      let radius = 17.25 + pseudoRandom(seed + i * 47) * 6.75;
+      if (isLarge) radius *= 2;
+      debris.push(makeDebris(x, y, Math.cos(angle) * speed, Math.sin(angle) * speed, radius, seed + i * 97, isLarge));
+    }
+    return debris;
+  }
+
+  function makeDebris(x, y, vx, vy, radius, seed, isLarge = false) {
+    const points = [];
+    const count = 12;
+    for (let i = 0; i < count; i++) {
+      const a = (Math.PI * 2 * i) / count;
+      const rough = 0.72 + 0.33 * pseudoRandom(seed + i * 17);
+      points.push({ a, r: radius * rough });
+    }
+    return {
+      x,
+      y,
+      vx,
+      vy,
+      radius,
+      spin: (pseudoRandom(seed + 100) - 0.5) * 1.2,
+      rot: pseudoRandom(seed + 200) * Math.PI * 2,
+      isLarge,
+      damageMultiplier: isLarge ? 2 : 1,
+      points
+    };
+  }
+
+  function makeStars(count) {
+    return Array.from({ length: count }, (_, i) => ({
+      x: pseudoRandom(i + 41) * W,
+      y: pseudoRandom(i + 173) * H,
+      r: 0.6 + pseudoRandom(i + 911) * 1.5,
+      alpha: 0.18 + pseudoRandom(i + 333) * 0.42
+    }));
+  }
+
+  // Small deterministic pseudo-random helper so the demo always starts the same.
+  function pseudoRandom(n) {
+    const x = Math.sin(n * 999.123) * 10000;
+    return x - Math.floor(x);
+  }
+
+  let state = makeLevelState(1, initialLevelPlan());
+
+  window.addEventListener("keydown", (e) => {
+    const key = e.key.toLowerCase();
+    if (["w", "a", "s", "d", " ", "r"].includes(key)) e.preventDefault();
+    if (key === " " && e.repeat) return;
+    keys.add(key);
+    audio.resume();
+
+    if (key === "r") reset();
+    if (key === " " && gameState === "levelComplete") {
+      advanceToNextLevel();
+      return;
+    }
+    if (key === " " && gameState === "play") {
+      if (state.conjugation) tryDetachConjugation("manual");
+      else tryStartConjugation();
+    }
+  });
+
+  window.addEventListener("keyup", (e) => {
+    keys.delete(e.key.toLowerCase());
+  });
+
+  window.addEventListener("pointerdown", () => {
+    audio.resume();
+  });
+
+  window.addEventListener("wheel", (e) => {
+    if (gameState !== "play") return;
+    if (state.conjugation) e.preventDefault();
+    audio.resume();
+    handleScrollTransfer(e);
+  }, { passive: false });
+
+  function reset() {
+    state = makeLevelState(1, initialLevelPlan());
+    gameState = "play";
+    endMessage = "";
+    lastTime = performance.now();
+    audio.playReset();
+  }
+
+  function advanceToNextLevel() {
+    const nextLevel = state.level + 1;
+    const nextPlan = state.nextPlan || makeNextLevelPlan(state.levelPlan);
+    state = makeLevelState(nextLevel, nextPlan, state.score, state.missed);
+    gameState = "play";
+    endMessage = "";
+    lastTime = performance.now();
+    audio.playReset();
+  }
+
+  function tryStartConjugation() {
+    if (state.conjugation) return;
+    const partner = nearestEligibleMicrobe();
+    if (!partner) {
+      audio.playDeny();
+      showMessage("Move closer to a living, unconjugated microbe before pressing Space.", 1.8);
+      return;
+    }
+    state.conjugation = {
+      partnerId: partner.id,
+      progress: 0,
+      scrollPulse: 0,
+      scrollEnergy: 0,
+      targetPassed: false,
+      targetPulse: 0
+    };
+    audio.playStartConjugation();
+    showMessage(`Conjugating with ${partner.name}: scroll until transfer passes ${partner.requiredGene.name} (${Math.round(partner.requiredGene.position * 100)}% from oriT).`, 2.8);
+  }
+
+  function handleScrollTransfer(e) {
+    const c = state.conjugation;
+    if (!c) return;
+
+    const partner = state.microbes.find(m => m.id === c.partnerId);
+    if (!partner || partner.health <= 0 || partner.conjugated) return;
+
+    const rawDelta = Math.hypot(e.deltaX, e.deltaY);
+    const modeMultiplier = e.deltaMode === 1 ? 16 : (e.deltaMode === 2 ? 800 : 1);
+    const delta = Math.min(CONFIG.wheelMaxDelta, Math.max(1, rawDelta * modeMultiplier));
+    const amount = CONFIG.wheelBaseTransfer + delta * CONFIG.wheelScaleTransfer;
+
+    c.progress = clamp(c.progress + amount, 0, CONFIG.maxTransferProgress);
+    c.scrollPulse = CONFIG.scrollPulseSeconds;
+    c.scrollEnergy = clamp(c.scrollEnergy + amount * 48, 0, 1);
+    audio.playScrollTick(c.progress, partner.requiredGene.position);
+
+    if (!c.targetPassed && c.progress >= partner.requiredGene.position) {
+      c.targetPassed = true;
+      c.targetPulse = 1.0;
+      audio.playGenePassed();
+      showMessage(`${partner.requiredGene.name} has passed into ${partner.name}. Press Space or swim out of range to detach the pilus.`, 3.4);
+    }
+  }
+
+  function tryDetachConjugation(method = "manual") {
+    const c = state.conjugation;
+    if (!c) return;
+    const partner = state.microbes.find(m => m.id === c.partnerId);
+    if (!partner) {
+      interruptConjugation("Conjugation target lost.", false);
+      return;
+    }
+
+    if (!c.targetPassed) {
+      interruptConjugation(`Detached too early: ${partner.requiredGene.name} had not crossed yet.`, false);
+      return;
+    }
+
+    completeConjugation(partner, method);
+  }
+
+  function completeConjugation(partner, method = "manual") {
+    if (!state.conjugation) return;
+    if (!partner.conjugated) {
+      partner.conjugated = true;
+      state.score += 1;
+    }
+    state.conjugation = null;
+    audio.playDetachSuccess();
+    const detail = method === "range" ? "The pilus detached as you left range." : "The pilus detached cleanly.";
+    showMessage(`${partner.name} received ${partner.requiredGene.name}. ${detail} Find the next partner.`, 2.8);
+  }
+
+  function nearestEligibleMicrobe() {
+    let best = null;
+    let bestD = Infinity;
+    for (const m of state.microbes) {
+      if (m.conjugated || m.health <= 0) continue;
+      const d = dist(state.player, m);
+      if (d < CONFIG.conjugationRange && d < bestD) {
+        best = m;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
+  function showMessage(text, seconds = 2.0) {
+    state.message = text;
+    state.messageTimer = seconds;
+  }
+
+  function update(dt) {
+    if (gameState === "levelComplete") {
+      state.levelAdvanceTimer = Math.max(0, state.levelAdvanceTimer - dt);
+      audio.update(0, 0, 0, 0, 0);
+      if (state.levelAdvanceTimer <= 0) advanceToNextLevel();
+      return;
+    }
+
+    if (gameState !== "play") {
+      audio.update(0, 0, 0, 0, 0);
+      return;
+    }
+
+    state.messageTimer = Math.max(0, state.messageTimer - dt);
+
+    updatePlayer(dt);
+    updateMicrobes(dt);
+    updateDebris(dt);
+    updateConjugation(dt);
+    handleCollisions(dt);
+    checkEndConditions();
+
+    const p = state.player;
+    const moving = keys.has("w") || keys.has("a") || keys.has("s") || keys.has("d");
+    const speed = Math.hypot(p.vx, p.vy) / CONFIG.maxSpeed;
+    const conjugating = state.conjugation ? 1 : 0;
+    const transfer = state.conjugation ? state.conjugation.progress : 0;
+    const scrollEnergy = state.conjugation ? state.conjugation.scrollEnergy : 0;
+    audio.update(moving ? 1 : 0, speed, conjugating, transfer, scrollEnergy);
+  }
+
+  function updatePlayer(dt) {
+    const p = state.player;
+    let ax = 0;
+    let ay = 0;
+    if (keys.has("w")) ay -= 1;
+    if (keys.has("s")) ay += 1;
+    if (keys.has("a")) ax -= 1;
+    if (keys.has("d")) ax += 1;
+
+    const mag = Math.hypot(ax, ay);
+    if (mag > 0) {
+      ax /= mag;
+      ay /= mag;
+      p.vx += ax * CONFIG.acceleration * dt;
+      p.vy += ay * CONFIG.acceleration * dt;
+      p.angle = Math.atan2(ay, ax);
+    }
+
+    const speed = Math.hypot(p.vx, p.vy);
+    if (speed > CONFIG.maxSpeed) {
+      p.vx = (p.vx / speed) * CONFIG.maxSpeed;
+      p.vy = (p.vy / speed) * CONFIG.maxSpeed;
+    }
+
+    const swimSpeed = Math.min(speed, CONFIG.maxSpeed) / CONFIG.maxSpeed;
+    if (swimSpeed > 0.03) {
+      p.flagellaPhase += dt * (4.5 + swimSpeed * 24);
+    }
+
+    p.vx *= Math.pow(CONFIG.damping, dt * 60);
+    p.vy *= Math.pow(CONFIG.damping, dt * 60);
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+
+    wrap(p);
+    p.invuln = Math.max(0, p.invuln - dt);
+    p.flash = Math.max(0, p.flash - dt);
+  }
+
+  function updateMicrobes(dt) {
+    for (const m of state.microbes) {
+      m.wiggle += dt;
+      m.invuln = Math.max(0, m.invuln - dt);
+    }
+  }
+
+  function updateDebris(dt) {
+    for (const d of state.debris) {
+      d.x += d.vx * dt;
+      d.y += d.vy * dt;
+      d.rot += d.spin * dt;
+      wrap(d);
+    }
+  }
+
+  function updateConjugation(dt) {
+    const c = state.conjugation;
+    if (!c) return;
+    const partner = state.microbes.find(m => m.id === c.partnerId);
+    if (!partner || partner.health <= 0 || partner.conjugated) {
+      interruptConjugation("Conjugation target lost.", false);
+      return;
+    }
+
+    const d = dist(state.player, partner);
+    if (c.targetPassed && d > CONFIG.detachAfterCompleteRange) {
+      completeConjugation(partner, "range");
+      return;
+    }
+
+    if (d > CONFIG.maxPilusLength) {
+      interruptConjugation("Pilus snapped: you drifted too far from the partner microbe.", false);
+      return;
+    }
+
+    c.scrollPulse = Math.max(0, c.scrollPulse - dt);
+    c.scrollEnergy = Math.max(0, c.scrollEnergy - dt * 1.8);
+    c.targetPulse = Math.max(0, c.targetPulse - dt * 1.4);
+  }
+
+  function handleCollisions(dt) {
+    const p = state.player;
+    for (const rock of state.debris) {
+      if (circleHit(p, rock) && p.invuln <= 0) {
+        damagePlayer(CONFIG.debrisDamagePlayer * (rock.damageMultiplier || 1));
+        deflectDebris(rock, p);
+        if (state.conjugation) interruptConjugation("Debris struck the donor cell. Conjugation interrupted.", true);
+      }
+
+      for (const m of state.microbes) {
+        if (m.health <= 0) continue;
+        if (circleHit(m, rock) && m.invuln <= 0) {
+          damageMicrobe(m, CONFIG.debrisDamageMicrobe * (rock.damageMultiplier || 1));
+          deflectDebris(rock, m);
+          if (state.conjugation?.partnerId === m.id) {
+            interruptConjugation("Debris struck the recipient cell. Conjugation interrupted.", true);
+          }
+        }
+      }
+
+      if (state.conjugation) {
+        const partner = state.microbes.find(m => m.id === state.conjugation.partnerId);
+        if (partner && lineCircleHit(state.player, partner, rock, rock.radius + 4)) {
+          damagePlayer(CONFIG.pilusDamage * (rock.damageMultiplier || 1));
+          damageMicrobe(partner, CONFIG.pilusDamage * (rock.damageMultiplier || 1));
+          deflectDebris(rock, { x: (state.player.x + partner.x) / 2, y: (state.player.y + partner.y) / 2 });
+          interruptConjugation("Debris clipped the pilus. Gene transfer failed.", true);
+        }
+      }
+    }
+  }
+
+  function damagePlayer(amount) {
+    const p = state.player;
+    p.health = Math.max(0, p.health - amount);
+    p.invuln = CONFIG.invulnSeconds;
+    p.flash = 0.22;
+    audio.playHit();
+  }
+
+  function damageMicrobe(m, amount) {
+    const wasAlive = m.health > 0;
+    m.health = Math.max(0, m.health - amount);
+    m.invuln = CONFIG.invulnSeconds;
+    if (wasAlive && m.health <= 0 && !m.conjugated) {
+      state.missed += 1;
+    }
+    audio.playHit();
+  }
+
+  function interruptConjugation(message, harmful) {
+    const c = state.conjugation;
+    if (!c) return;
+    state.conjugation = null;
+    audio.playInterrupt();
+    showMessage(harmful ? `${message} Press Space near the microbe to try again.` : message, 2.3);
+  }
+
+  function checkEndConditions() {
+    if (state.player.health <= 0) {
+      gameState = "lose";
+      endMessage = "The donor cell was lysed by debris.";
+      audio.playLose();
+      return;
+    }
+
+    const remainingViable = state.microbes.filter(m => m.health > 0 && !m.conjugated).length;
+    if (remainingViable === 0) {
+      gameState = "levelComplete";
+      state.nextPlan = makeNextLevelPlan(state.levelPlan);
+      state.levelAdvanceTimer = 2.6;
+      const deliveredThisLevel = state.microbes.filter(m => m.conjugated).length;
+      const lostThisLevel = state.microbes.filter(m => m.health <= 0 && !m.conjugated).length;
+      endMessage = `Level ${state.level} finished: ${deliveredThisLevel} delivered, ${lostThisLevel} lost. Score: ${state.score}. Next level: ${state.nextPlan.added}.`;
+      audio.playWin();
+    }
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, canvas.width, H);
+    drawBackground();
+    drawRangeHints();
+    drawConjugation();
+    drawMicrobes();
+    drawDebris();
+    drawPlayer();
+    drawHUD();
+
+    if (gameState !== "play") drawEndOverlay();
+  }
+
+  function drawBackground() {
+    const gradient = ctx.createRadialGradient(W * 0.5, H * 0.38, 40, W * 0.5, H * 0.5, W * 0.78);
+    gradient.addColorStop(0, "#0e2634");
+    gradient.addColorStop(0.58, "#071017");
+    gradient.addColorStop(1, "#020407");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, W, H);
+
+    for (const s of state.stars) {
+      ctx.globalAlpha = s.alpha;
+      ctx.fillStyle = "#d8fdff";
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    ctx.strokeStyle = "rgba(137, 255, 214, 0.035)";
+    ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 48) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for (let y = 0; y < H; y += 48) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+  }
+
+  function drawRangeHints() {
+    for (const m of state.microbes) {
+      if (m.conjugated || m.health <= 0) continue;
+      const near = dist(state.player, m) < CONFIG.conjugationRange;
+      ctx.save();
+      ctx.globalAlpha = near ? 0.24 : 0.10;
+      ctx.strokeStyle = near ? colors.player : colors.microbe;
+      ctx.setLineDash([8, 10]);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, CONFIG.conjugationRange, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawPlayer() {
+    const p = state.player;
+    const speed = Math.hypot(p.vx, p.vy);
+    const swim = clamp(speed / CONFIG.maxSpeed, 0, 1);
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(p.angle);
+
+    const blink = p.invuln > 0 && Math.floor(performance.now() / 80) % 2 === 0;
+    ctx.globalAlpha = blink ? 0.45 : 1;
+
+    // Flagellum trails behind the donor cell. It wiggles harder as the player swims.
+    drawPlayerFlagellum(p, swim);
+
+    // Cell envelope: no direction triangle/nose; the flagellum is the only orientation cue.
+    const bodyGradient = ctx.createRadialGradient(-4, -5, 3, 0, 0, p.radius * 1.45);
+    bodyGradient.addColorStop(0, p.flash > 0 ? "rgba(255, 107, 122, 0.70)" : "rgba(215, 255, 244, 0.72)");
+    bodyGradient.addColorStop(1, p.flash > 0 ? "rgba(255, 107, 122, 0.28)" : "rgba(137, 255, 214, 0.24)");
+    ctx.fillStyle = bodyGradient;
+    ctx.strokeStyle = colors.player;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, p.radius * 1.28, p.radius * 0.92, Math.sin(p.flagellaPhase * 0.35) * 0.04, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Soft inner nucleoid squiggle.
+    ctx.strokeStyle = "rgba(233, 251, 255, 0.82)";
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    for (let i = 0; i <= 26; i++) {
+      const t = i / 26;
+      const x = -9 + t * 18;
+      const y = Math.sin(t * Math.PI * 4 + p.flagellaPhase * 0.45) * 3.2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Plasmid rings inside donor.
+    ctx.strokeStyle = colors.gene;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(-7, -6, 4.2, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(8, 6, 3.4, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Symmetric membrane pores, kept dot-like so there is no arrow/triangle nose.
+    ctx.fillStyle = "rgba(137, 255, 214, 0.72)";
+    for (let i = 0; i < 10; i++) {
+      const a = (Math.PI * 2 * i) / 10 + 0.18;
+      const x = Math.cos(a) * p.radius * 1.02;
+      const y = Math.sin(a) * p.radius * 0.76;
+      ctx.beginPath();
+      ctx.arc(x, y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function drawPlayerFlagellum(p, swim) {
+    const tailLength = p.radius * 2.9;
+    const segments = 22;
+    const baseX = -p.radius * 1.12;
+    const amplitude = 6.2 + swim * 7.2;
+    const phase = p.flagellaPhase;
+
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    // A persistent flagellar filament: always present, but animated only while swimming.
+    ctx.strokeStyle = "rgba(137, 255, 214, 0.42)";
+    ctx.lineWidth = 5.5;
+    ctx.beginPath();
+    ctx.moveTo(baseX, 0);
+    for (let i = 1; i <= segments; i++) {
+      const t = i / segments;
+      const x = baseX - t * tailLength;
+      const taper = 1 - t * 0.22;
+      const y = Math.sin(phase - t * 11.0) * amplitude * taper;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    ctx.strokeStyle = colors.player;
+    ctx.lineWidth = 3.0;
+    ctx.beginPath();
+    ctx.moveTo(baseX, 0);
+    for (let i = 1; i <= segments; i++) {
+      const t = i / segments;
+      const x = baseX - t * tailLength;
+      const taper = 1 - t * 0.22;
+      const y = Math.sin(phase - t * 11.0) * amplitude * taper;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Small basal body where the filament meets the envelope.
+    ctx.fillStyle = colors.playerCore;
+    ctx.beginPath();
+    ctx.arc(baseX, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawMicrobes() {
+    for (const m of state.microbes) {
+      const alive = m.health > 0;
+      const jiggleX = Math.sin(m.wiggle * 2.1) * 1.5;
+      const jiggleY = Math.cos(m.wiggle * 1.7) * 1.2;
+      const gene = m.requiredGene;
+      const membrane = m.conjugated ? colors.microbeDone : gene.color;
+
+      ctx.save();
+      ctx.translate(m.x + jiggleX, m.y + jiggleY);
+
+      if (!alive) ctx.globalAlpha = 0.38;
+      ctx.fillStyle = m.invuln > 0 ? "rgba(255, 107, 122, 0.32)" : hexToRgba(gene.color, 0.20);
+      ctx.strokeStyle = alive ? membrane : "#51616b";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, m.radius * 1.14, m.radius * 0.92, Math.sin(m.wiggle) * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Ribosome-like dots
+      ctx.fillStyle = alive ? "rgba(233, 251, 255, 0.75)" : "rgba(233, 251, 255, 0.30)";
+      for (let i = 0; i < 7; i++) {
+        const a = i * 1.9 + m.wiggle * 0.3;
+        const r = 6 + (i % 3) * 4;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * r, Math.sin(a) * r * 0.75, 1.7, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Color-coded target gene badge inside the recipient.
+      ctx.strokeStyle = gene.color;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.arc(2, -2, m.conjugated ? 7.5 : 5.6, 0, Math.PI * 2);
+      ctx.stroke();
+      if (m.conjugated) {
+        ctx.fillStyle = hexToRgba(gene.color, 0.26);
+        ctx.beginPath();
+        ctx.arc(2, -2, 7.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Put the requested-gene label above the recipient so it never collides
+      // with the strain name and health bar below the cell.
+      ctx.fillStyle = !alive ? colors.danger : (m.conjugated ? colors.microbeDone : gene.color);
+      ctx.font = "bold 12px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(!alive ? "lost" : (m.conjugated ? `${gene.name}+` : `needs ${gene.name}`), 0, -m.radius - 14);
+
+      ctx.restore();
+
+      drawHealthBar(m.x - 34, m.y + m.radius + 18, 68, 8, m.health / CONFIG.maxHealth, m.name);
+    }
+  }
+
+  function drawDebris() {
+    for (const d of state.debris) {
+      ctx.save();
+      ctx.translate(d.x, d.y);
+      ctx.rotate(d.rot);
+      ctx.fillStyle = d.isLarge ? "rgba(230, 184, 138, 0.92)" : "rgba(215, 197, 168, 0.85)";
+      ctx.strokeStyle = d.isLarge ? colors.warn : colors.debrisEdge;
+      ctx.lineWidth = d.isLarge ? 3.5 : 2.5;
+      ctx.beginPath();
+      d.points.forEach((pt, i) => {
+        const x = Math.cos(pt.a) * pt.r;
+        const y = Math.sin(pt.a) * pt.r;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(68, 54, 43, 0.55)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-d.radius * 0.3, -d.radius * 0.2);
+      ctx.lineTo(d.radius * 0.22, -d.radius * 0.12);
+      ctx.lineTo(d.radius * 0.05, d.radius * 0.28);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawConjugation() {
+    const c = state.conjugation;
+    if (!c) return;
+    const p = state.player;
+    const partner = state.microbes.find(m => m.id === c.partnerId);
+    if (!partner) return;
+    const gene = partner.requiredGene;
+
+    const d = dist(p, partner);
+    const dangerAlpha = Math.max(0, (d - CONFIG.conjugationRange) / (CONFIG.maxPilusLength - CONFIG.conjugationRange));
+
+    // Pilus sheath
+    ctx.save();
+    ctx.lineCap = "round";
+    ctx.strokeStyle = dangerAlpha > 0.55 ? colors.warn : colors.pilus;
+    ctx.globalAlpha = 0.90;
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(partner.x, partner.y);
+    ctx.stroke();
+
+    // Inner strand uses the current target gene color.
+    ctx.strokeStyle = hexToRgba(gene.color, 0.88);
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 8]);
+    ctx.lineDashOffset = -performance.now() / 70;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(partner.x, partner.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Gene packet moving along the pilus, based on progress toward the recipient's requested gene.
+    const t = easeInOut(clamp(c.progress / gene.position, 0, 1));
+    const gx = lerp(p.x, partner.x, t);
+    const gy = lerp(p.y, partner.y, t);
+    const pulse = c.scrollPulse > 0 ? 1 + c.scrollPulse * 1.8 : 1;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = gene.color;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(gx, gy, 6.5 * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawHUD() {
+    const p = state.player;
+
+    // Dedicated HUD column: persistent information no longer covers the play field.
+    ctx.save();
+    ctx.fillStyle = "rgba(2, 7, 11, 0.96)";
+    ctx.fillRect(SIDEBAR_X, 0, SIDEBAR_W, H);
+    ctx.strokeStyle = "rgba(137, 255, 214, 0.20)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(SIDEBAR_X + 0.5, 0);
+    ctx.lineTo(SIDEBAR_X + 0.5, H);
+    ctx.stroke();
+    ctx.restore();
+
+    const panelX = SIDEBAR_X + 18;
+    const panelW = SIDEBAR_W - 36;
+    const textX = panelX + 18;
+
+    drawPanel(panelX, 16, panelW, 188);
+    ctx.fillStyle = colors.ink;
+    ctx.font = "bold 18px system-ui";
+    ctx.fillText("Microbial Asteroids", textX, 46);
+    ctx.fillStyle = colors.warn;
+    ctx.font = "11px system-ui";
+    ctx.fillText(BUILD_LABEL, textX, 61);
+
+    drawHealthBar(textX, 76, 190, 10, p.health / CONFIG.maxHealth, "Donor health");
+
+    const done = state.microbes.filter(m => m.conjugated).length;
+    const lost = state.microbes.filter(m => m.health <= 0 && !m.conjugated).length;
+    const viable = state.microbes.filter(m => m.health > 0 && !m.conjugated).length;
+    ctx.fillStyle = colors.muted;
+    ctx.font = "14px system-ui";
+    ctx.fillText(`Score ${state.score} · missed ${state.missed} · donor dies at 0 HP`, textX, 117);
+    ctx.fillText(`Level ${state.level} · microbes ${state.levelPlan.microbeCount} · debris ${state.levelPlan.debrisCount}`, textX, 138);
+    ctx.fillText(`This level: delivered ${done} · viable ${viable} · lost ${lost}`, textX, 159);
+    ctx.fillText("Sound begins after first key/scroll.", textX, 180);
+
+    const statusY = 220;
+    if (state.conjugation) {
+      const partner = state.microbes.find(m => m.id === state.conjugation.partnerId);
+      drawPanel(panelX, statusY, panelW, 270);
+      ctx.fillStyle = colors.ink;
+      ctx.font = "bold 16px system-ui";
+      ctx.fillText(`Conjugating: ${partner.name}`, textX, statusY + 30);
+      ctx.fillStyle = colors.muted;
+      ctx.font = "13px system-ui";
+      ctx.fillText("Scroll/touchpad to unwind and transfer DNA.", textX, statusY + 52);
+      ctx.fillText("After the target passes, Space or leave range detaches.", textX, statusY + 72);
+      drawGenomeDial(SIDEBAR_X + SIDEBAR_W / 2, statusY + 150, 58, state.conjugation, partner, textX, statusY + 238);
+    } else {
+      const near = nearestEligibleMicrobe();
+      drawPanel(panelX, statusY, panelW, 126);
+      ctx.fillStyle = colors.ink;
+      ctx.font = "bold 15px system-ui";
+      ctx.fillText(near ? "Ready to conjugate" : "No pilus attached", textX, statusY + 30);
+      ctx.fillStyle = colors.muted;
+      ctx.font = "13px system-ui";
+      ctx.fillText(near ? "Press Space, then scroll until the target passes." : "Move into a dashed conjugation range.", textX, statusY + 54);
+      ctx.fillText("Genes vary: some are near oriT, others are deep", textX, statusY + 78);
+      ctx.fillText("on the plasmid.", textX, statusY + 98);
+    }
+
+    if (state.messageTimer > 0) {
+      const alpha = Math.min(1, state.messageTimer / 0.35);
+      drawMessage(state.message, alpha);
+    }
+  }
+
+  function drawGenomeDial(cx, cy, r, c, partner, readoutX = cx - 156, readoutY = cy + r + 42) {
+    const gene = partner.requiredGene;
+    const start = -Math.PI / 2;
+    const rawProgress = clamp(c.progress, 0, CONFIG.maxTransferProgress);
+    const displayProgress = rawProgress >= 1 ? rawProgress % 1 : rawProgress;
+    const progressAngle = start + displayProgress * Math.PI * 2;
+    const target = gene.position;
+    const targetAngle = start + target * Math.PI * 2;
+    const targetPct = clamp(rawProgress / target, 0, 1);
+    const pulse = c.scrollPulse > 0 ? c.scrollPulse / CONFIG.scrollPulseSeconds : 0;
+    const passedPulse = c.targetPulse > 0 ? c.targetPulse : 0;
+
+    ctx.save();
+    ctx.lineCap = "round";
+
+    // Backbone and subtle outer glow.
+    ctx.strokeStyle = colors.genomeBackbone;
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    if (rawProgress >= 1) {
+      ctx.strokeStyle = `rgba(247, 226, 123, ${0.20 + pulse * 0.16})`;
+      ctx.lineWidth = 18;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      const fullGrad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+      fullGrad.addColorStop(0, colors.pilus);
+      fullGrad.addColorStop(1, gene.color);
+      ctx.strokeStyle = fullGrad;
+      ctx.lineWidth = 8;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Current lap arc.
+    ctx.strokeStyle = `rgba(247, 226, 123, ${0.20 + pulse * 0.22})`;
+    ctx.lineWidth = 18;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, start, progressAngle);
+    ctx.stroke();
+
+    const grad = ctx.createLinearGradient(cx - r, cy - r, cx + r, cy + r);
+    grad.addColorStop(0, colors.pilus);
+    grad.addColorStop(1, gene.color);
+    ctx.strokeStyle = grad;
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, start, progressAngle);
+    ctx.stroke();
+
+    // Ori marker plus all possible colored gene landmarks.
+    drawRadialMarker(cx, cy, r, start, colors.ori, "F oriT", -16, -10, 6, true);
+    for (const candidate of GENE_LIBRARY) {
+      const angle = start + candidate.position * Math.PI * 2;
+      const isTarget = candidate.id === gene.id;
+      const labelOffset = markerLabelOffset(angle, isTarget ? 26 : 18);
+      drawRadialMarker(cx, cy, r, angle, candidate.color, candidate.name, labelOffset.dx, labelOffset.dy, isTarget ? 7.5 : 4.7, isTarget);
+    }
+
+    // Target gene highlight.
+    if (c.targetPassed) {
+      const tx = cx + Math.cos(targetAngle) * r;
+      const ty = cy + Math.sin(targetAngle) * r;
+      ctx.strokeStyle = hexToRgba(gene.color, 0.38 + passedPulse * 0.42);
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(tx, ty, 13 + passedPulse * 12, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // Current transfer head. It can keep moving after the target gene has passed.
+    const hx = cx + Math.cos(progressAngle) * r;
+    const hy = cy + Math.sin(progressAngle) * r;
+    ctx.fillStyle = c.targetPassed ? colors.microbeDone : colors.warn;
+    ctx.strokeStyle = colors.ink;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(hx, hy, 5 + pulse * 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Center readout.
+    ctx.fillStyle = c.targetPassed ? colors.microbeDone : colors.ink;
+    ctx.font = "bold 17px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText(c.targetPassed ? `${gene.name}+` : `${Math.round(targetPct * 100)}%`, cx, cy + 3);
+    ctx.fillStyle = colors.muted;
+    ctx.font = "11px system-ui";
+    ctx.fillText(c.targetPassed ? "detach" : "to target", cx, cy + 20);
+
+    // Mini instruction/readout.
+    const lapText = rawProgress >= 1 ? `${Math.floor(rawProgress)} lap + ${Math.round(displayProgress * 100)}%` : `${Math.round(rawProgress * 100)}%`;
+    ctx.fillStyle = c.targetPassed ? colors.microbeDone : colors.muted;
+    ctx.font = "12px system-ui";
+    ctx.textAlign = "left";
+    ctx.fillText(`Current locus: ${lapText} around plasmid`, readoutX, readoutY);
+    ctx.fillText(c.targetPassed ? `Target passed. Press Space or leave range to detach.` : `Success after passing ${gene.name} at ${Math.round(target * 100)}% from oriT.`, readoutX, readoutY + 17);
+    ctx.restore();
+  }
+
+  function drawRadialMarker(cx, cy, r, angle, color, label, labelDx = 0, labelDy = 0, markerRadius = 6, showLabel = true) {
+    const x = cx + Math.cos(angle) * r;
+    const y = cy + Math.sin(angle) * r;
+    const ox = cx + Math.cos(angle) * (r + 16);
+    const oy = cy + Math.sin(angle) * (r + 16);
+
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = markerRadius > 6 ? 2.5 : 1.5;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(angle) * (r - 9), cy + Math.sin(angle) * (r - 9));
+    ctx.lineTo(ox, oy);
+    ctx.stroke();
+
+    ctx.fillStyle = color;
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, y, markerRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    if (showLabel) {
+      ctx.fillStyle = color;
+      ctx.font = markerRadius > 6 ? "bold 12px system-ui" : "11px system-ui";
+      ctx.textAlign = "center";
+      ctx.fillText(label, ox + labelDx, oy + labelDy);
+    }
+    ctx.restore();
+  }
+
+  function markerLabelOffset(angle, distance = 22) {
+    return {
+      dx: Math.cos(angle) * distance,
+      dy: Math.sin(angle) * distance + 4
+    };
+  }
+
+  function drawPanel(x, y, w, h) {
+    ctx.save();
+    ctx.fillStyle = colors.panel;
+    ctx.strokeStyle = "rgba(137, 255, 214, 0.18)";
+    ctx.lineWidth = 1;
+    roundRect(ctx, x, y, w, h, 14);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawHealthBar(x, y, w, h, t, label) {
+    t = clamp(t, 0, 1);
+    ctx.save();
+    ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+    roundRect(ctx, x, y, w, h, h / 2);
+    ctx.fill();
+    ctx.fillStyle = t > 0.45 ? colors.player : (t > 0.22 ? colors.warn : colors.danger);
+    roundRect(ctx, x, y, w * t, h, h / 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+    ctx.stroke();
+    if (label) {
+      ctx.fillStyle = colors.muted;
+      ctx.font = "11px system-ui";
+      ctx.textAlign = "left";
+      ctx.fillText(label, x, y - 5);
+    }
+    ctx.restore();
+  }
+
+  function drawMessage(text, alpha) {
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const maxWidth = 660;
+    const lines = wrapText(text, maxWidth, "15px system-ui");
+    const h = 34 + lines.length * 20;
+    const x = (W - maxWidth) / 2;
+    const y = H - h - 28;
+    drawPanel(x, y, maxWidth, h);
+    ctx.fillStyle = colors.ink;
+    ctx.font = "15px system-ui";
+    ctx.textAlign = "center";
+    lines.forEach((line, i) => ctx.fillText(line, W / 2, y + 32 + i * 20));
+    ctx.restore();
+  }
+
+  function drawEndOverlay() {
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.62)";
+    ctx.fillRect(0, 0, W, H);
+
+    const isLevelComplete = gameState === "levelComplete";
+    const title = isLevelComplete ? `Level ${state.level} complete` : `Culture lost · score ${state.score}`;
+    const color = isLevelComplete ? colors.player : colors.danger;
+    drawPanel(W / 2 - 280, H / 2 - 120, 560, 240);
+    ctx.fillStyle = color;
+    ctx.font = "bold 34px system-ui";
+    ctx.textAlign = "center";
+    ctx.fillText(title, W / 2, H / 2 - 56);
+
+    ctx.fillStyle = colors.ink;
+    ctx.font = "17px system-ui";
+    const lines = wrapText(endMessage, 500, "17px system-ui");
+    lines.forEach((line, i) => ctx.fillText(line, W / 2, H / 2 - 18 + i * 23));
+
+    ctx.fillStyle = colors.muted;
+    ctx.font = "15px system-ui";
+    if (isLevelComplete) {
+      ctx.fillText(`Next level starts in ${Math.ceil(state.levelAdvanceTimer)}… press Space to start now.`, W / 2, H / 2 + 58);
+      ctx.fillText("Press R to restart from Level 1.", W / 2, H / 2 + 84);
+    } else {
+      ctx.fillText(`Final score: ${state.score} · missed opportunities: ${state.missed}. Press R to restart from Level 1.`, W / 2, H / 2 + 58);
+    }
+    ctx.restore();
+  }
+
+  function wrapText(text, maxWidth, font) {
+    ctx.save();
+    ctx.font = font;
+    const words = text.split(" ");
+    const lines = [];
+    let line = "";
+    for (const word of words) {
+      const test = line ? `${line} ${word}` : word;
+      if (ctx.measureText(test).width > maxWidth - 40 && line) {
+        lines.push(line);
+        line = word;
+      } else {
+        line = test;
+      }
+    }
+    if (line) lines.push(line);
+    ctx.restore();
+    return lines;
+  }
+
+  function circleHit(a, b) {
+    return dist(a, b) < a.radius + b.radius;
+  }
+
+  function lineCircleHit(a, b, circle, radius) {
+    const ax = a.x, ay = a.y, bx = b.x, by = b.y;
+    const abx = bx - ax;
+    const aby = by - ay;
+    const acx = circle.x - ax;
+    const acy = circle.y - ay;
+    const ab2 = abx * abx + aby * aby;
+    let t = ab2 === 0 ? 0 : (acx * abx + acy * aby) / ab2;
+    t = clamp(t, 0, 1);
+    const closestX = ax + abx * t;
+    const closestY = ay + aby * t;
+    return Math.hypot(circle.x - closestX, circle.y - closestY) < radius;
+  }
+
+  function deflectDebris(debris, target) {
+    const dx = debris.x - target.x;
+    const dy = debris.y - target.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = dx / len;
+    const ny = dy / len;
+    const speed = Math.max(120, Math.hypot(debris.vx, debris.vy));
+    debris.vx = nx * speed;
+    debris.vy = ny * speed;
+    debris.x += nx * 8;
+    debris.y += ny * 8;
+  }
+
+  function dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+
+  function wrap(o) {
+    const r = o.radius || 0;
+    if (o.x < -r) o.x = W + r;
+    if (o.x > W + r) o.x = -r;
+    if (o.y < -r) o.y = H + r;
+    if (o.y > H + r) o.y = -r;
+  }
+
+  function lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  function clamp(n, min, max) {
+    return Math.max(min, Math.min(max, n));
+  }
+
+  function easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
+
+  function hexToRgba(hex, alpha) {
+    const clean = hex.replace("#", "");
+    const r = parseInt(clean.slice(0, 2), 16);
+    const g = parseInt(clean.slice(2, 4), 16);
+    const b = parseInt(clean.slice(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function makeAudioController() {
+    let audioCtx = null;
+    let master = null;
+    let thrustOsc = null;
+    let thrustGain = null;
+    let conjOsc = null;
+    let conjGain = null;
+    let lastScrollSound = 0;
+
+    function ensure() {
+      if (audioCtx) return audioCtx;
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      audioCtx = new AudioContextClass();
+      master = audioCtx.createGain();
+      master.gain.value = 0.45;
+      master.connect(audioCtx.destination);
+
+      thrustOsc = audioCtx.createOscillator();
+      thrustOsc.type = "sawtooth";
+      thrustGain = audioCtx.createGain();
+      thrustGain.gain.value = 0;
+      const thrustFilter = audioCtx.createBiquadFilter();
+      thrustFilter.type = "lowpass";
+      thrustFilter.frequency.value = 280;
+      thrustOsc.connect(thrustFilter).connect(thrustGain).connect(master);
+      thrustOsc.frequency.value = 75;
+      thrustOsc.start();
+
+      conjOsc = audioCtx.createOscillator();
+      conjOsc.type = "triangle";
+      conjGain = audioCtx.createGain();
+      conjGain.gain.value = 0;
+      conjOsc.connect(conjGain).connect(master);
+      conjOsc.frequency.value = 210;
+      conjOsc.start();
+
+      return audioCtx;
+    }
+
+    function resume() {
+      const ctx = ensure();
+      if (ctx && ctx.state === "suspended") ctx.resume();
+    }
+
+    function tone(freq, duration = 0.12, type = "sine", volume = 0.12, when = 0, endFreq = null) {
+      const ctx = ensure();
+      if (!ctx) return;
+      const now = ctx.currentTime + when;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now);
+      if (endFreq) osc.frequency.exponentialRampToValueAtTime(Math.max(1, endFreq), now + duration);
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(volume, now + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+      osc.connect(gain).connect(master);
+      osc.start(now);
+      osc.stop(now + duration + 0.03);
+    }
+
+    function noise(duration = 0.12, volume = 0.12, filterFreq = 550) {
+      const ctx = ensure();
+      if (!ctx) return;
+      const length = Math.max(1, Math.floor(ctx.sampleRate * duration));
+      const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / length);
+
+      const src = ctx.createBufferSource();
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      filter.type = "lowpass";
+      filter.frequency.value = filterFreq;
+      gain.gain.value = volume;
+      src.buffer = buffer;
+      src.connect(filter).connect(gain).connect(master);
+      src.start();
+    }
+
+    function update(moving, speed, conjugating, transfer, scrollEnergy) {
+      const ctx = audioCtx;
+      if (!ctx || !thrustGain || !conjGain) return;
+      const now = ctx.currentTime;
+      const thrustVol = moving ? 0.025 + 0.035 * clamp(speed, 0, 1) : 0.0001;
+      thrustGain.gain.linearRampToValueAtTime(thrustVol, now + 0.06);
+      thrustOsc.frequency.linearRampToValueAtTime(65 + 95 * clamp(speed, 0, 1), now + 0.06);
+
+      const conjVol = conjugating ? 0.010 + 0.030 * clamp(scrollEnergy, 0, 1) : 0.0001;
+      conjGain.gain.linearRampToValueAtTime(conjVol, now + 0.06);
+      conjOsc.frequency.linearRampToValueAtTime(170 + transfer * 210 + scrollEnergy * 85, now + 0.06);
+    }
+
+    function playScrollTick(progress, target) {
+      const ctx = ensure();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      if (now - lastScrollSound < 0.045) return;
+      lastScrollSound = now;
+      const t = clamp(progress / target, 0, 1);
+      tone(310 + t * 520, 0.045, "square", 0.035, 0, 360 + t * 680);
+    }
+
+    return {
+      resume,
+      update,
+      playScrollTick,
+      playStartConjugation() {
+        tone(220, 0.08, "triangle", 0.10, 0, 330);
+        tone(440, 0.10, "triangle", 0.08, 0.08, 660);
+      },
+      playGenePassed() {
+        tone(523.25, 0.09, "sine", 0.10, 0);
+        tone(659.25, 0.10, "sine", 0.10, 0.08);
+        tone(783.99, 0.15, "sine", 0.10, 0.17);
+      },
+      playDetachSuccess() {
+        tone(660, 0.08, "triangle", 0.10, 0, 880);
+        tone(990, 0.16, "sine", 0.08, 0.09);
+      },
+      playHit() {
+        noise(0.16, 0.16, 360);
+        tone(90, 0.12, "sawtooth", 0.10, 0, 45);
+      },
+      playInterrupt() {
+        tone(240, 0.16, "sawtooth", 0.11, 0, 90);
+        noise(0.10, 0.07, 900);
+      },
+      playDeny() {
+        tone(130, 0.08, "square", 0.07, 0);
+        tone(105, 0.12, "square", 0.06, 0.09);
+      },
+      playWin() {
+        tone(392.00, 0.12, "triangle", 0.12, 0);
+        tone(523.25, 0.14, "triangle", 0.12, 0.12);
+        tone(659.25, 0.18, "triangle", 0.12, 0.26);
+        tone(1046.50, 0.36, "sine", 0.10, 0.43);
+      },
+      playLose() {
+        tone(220, 0.20, "sawtooth", 0.12, 0, 130);
+        tone(110, 0.35, "sawtooth", 0.10, 0.18, 55);
+        noise(0.25, 0.10, 250);
+      },
+      playReset() {
+        tone(330, 0.08, "triangle", 0.08, 0, 440);
+      }
+    };
+  }
+
+  function gameLoop(now) {
+    const dt = Math.min(0.033, (now - lastTime) / 1000);
+    lastTime = now;
+    update(dt);
+    render();
+    requestAnimationFrame(gameLoop);
+  }
+
+  requestAnimationFrame(gameLoop);
+})();
+</script>
+</body>
+</html>
