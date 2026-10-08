@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Random Pedigree Generator</title>
+  <style>
+    :root {
+      --bg: #f7f7f4;
+      --panel: #ffffff;
+      --ink: #1f2933;
+      --muted: #5f6b76;
+      --line: #20242a;
+      --accent: #355c7d;
+      --affected: #111111;
+      --unaffected: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      overflow: hidden;
+    }
+
+    header {
+      padding: 12px 18px 8px;
+      background: var(--panel);
+      border-bottom: 1px solid #d9dedf;
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 1.22rem;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      max-width: 1050px;
+      font-size: 0.86rem;
+      line-height: 1.28;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      padding: 9px 18px;
+      background: #eef2f4;
+      border-bottom: 1px solid #d9dedf;
+      font-size: 0.9rem;
+    }
+
+    button, select {
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid #b6c0c7;
+      padding: 7px 10px;
+      background: white;
+      color: var(--ink);
+    }
+
+    button {
+      cursor: pointer;
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+      font-weight: 650;
+    }
+
+    button:hover { filter: brightness(1.07); }
+
+    .toggle-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .toggle-control input {
+      margin: 0;
+    }
+
+    .readout {
+      padding: 8px 18px;
+      display: grid;
+      grid-template-columns: minmax(270px, 1.05fr) minmax(330px, 1fr);
+      gap: 10px;
+      font-size: 0.86rem;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid #d8dddf;
+      border-radius: 10px;
+      padding: 9px 11px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      min-height: 76px;
+    }
+
+    .card h2 {
+      margin: 0 0 4px;
+      font-size: 0.92rem;
+    }
+
+    .card p {
+      margin: 3px 0;
+      color: var(--muted);
+      line-height: 1.25;
+    }
+
+    .mode {
+      font-size: 1rem;
+      font-weight: 750;
+      color: var(--accent) !important;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px 12px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.2;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      gap: 5px;
+      align-items: center;
+      white-space: nowrap;
+    }
+
+    .legend svg {
+      overflow: visible;
+      flex: 0 0 auto;
+    }
+
+    .pedigree-wrap {
+      margin: 0 18px 12px;
+      height: calc(100vh - 200px);
+      min-height: 360px;
+      background: var(--panel);
+      border: 1px solid #d8dddf;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+    }
+
+    svg#pedigree {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .connector {
+      stroke: var(--line);
+      stroke-width: 1.7;
+      fill: none;
+      stroke-linecap: round;
+    }
+
+    .person-shape {
+      stroke: var(--line);
+      stroke-width: 1.9;
+    }
+
+    .person-text {
+      font-size: 10px;
+      text-anchor: middle;
+      fill: var(--ink);
+      dominant-baseline: central;
+    }
+
+    .genotype-text {
+      font-size: 10px;
+      text-anchor: middle;
+      fill: var(--muted);
+      dominant-baseline: central;
+    }
+
+    .inherited-text {
+      font-size: 8.5px;
+      text-anchor: middle;
+      fill: var(--accent);
+      dominant-baseline: central;
+      font-weight: 650;
+    }
+
+    .inherited-label-bg {
+      fill: rgba(255, 255, 255, 0.86);
+      stroke: #d8dddf;
+      stroke-width: 0.6;
+    }
+
+    .second-genotype-text {
+      font-size: 10px;
+      text-anchor: middle;
+      fill: var(--muted);
+      dominant-baseline: central;
+    }
+
+    .generation-label {
+      font-size: 12px;
+      font-weight: 750;
+      fill: #6a737b;
+      text-anchor: start;
+    }
+
+    details { margin-top: 4px; }
+
+    summary {
+      cursor: pointer;
+      color: var(--accent);
+      font-weight: 650;
+      font-size: 0.82rem;
+    }
+
+    code {
+      background: #eef2f4;
+      padding: 1px 4px;
+      border-radius: 5px;
+    }
+
+    @media (max-width: 760px) {
+      body { overflow: auto; }
+      .readout { grid-template-columns: 1fr; }
+      .pedigree-wrap { height: 58vh; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Random Pedigree Generator</h1>
+  </header>
+
+  <section class="controls">
+    <button id="generateBtn">Generate new pedigree</button>
+    <label>
+      Inheritance pattern:
+      <select id="modeSelect">
+        <option value="random">Random each time</option>
+        <option value="AR">Autosomal recessive</option>
+        <option value="AD">Autosomal dominant</option>
+        <option value="XLR">X-linked recessive</option>
+        <option value="XLD">X-linked dominant</option>
+      </select>
+    </label>
+    <label class="toggle-control">
+      <input type="checkbox" id="showCarriersToggle" checked>
+      Show carriers
+    </label>
+    <label class="toggle-control">
+      <input type="checkbox" id="showGenotypesToggle" checked>
+      Show genotypes
+    </label>
+    <label class="toggle-control">
+      <input type="checkbox" id="showPhenotypesToggle" checked>
+      Show phenotypes
+    </label>
+    <label class="toggle-control">
+      <input type="checkbox" id="showInheritedAllelesToggle">
+      Show inherited alleles
+    </label>
+    <label class="toggle-control">
+      <input type="checkbox" id="showTwoGenesToggle">
+      Two-gene mode
+    </label>
+  </section>
+
+  <section class="readout">
+    <div class="card">
+      <h2>Current pedigree</h2>
+      <p class="mode" id="modeLabel">—</p>
+      <p id="modeDescription">Click generate to begin.</p>
+      <p id="summaryStats"></p>
+    </div>
+
+    <div class="card">
+      <h2>Legend and rules</h2>
+      <div class="legend">
+        <span class="legend-item">
+          <svg width="18" height="18"><rect x="3" y="3" width="12" height="12" fill="white" stroke="#111" stroke-width="2"/></svg>
+          male
+        </span>
+        <span class="legend-item">
+          <svg width="18" height="18"><circle cx="9" cy="9" r="6" fill="white" stroke="#111" stroke-width="2"/></svg>
+          female
+        </span>
+        <span class="legend-item">
+          <svg width="18" height="18"><rect x="3" y="3" width="12" height="12" fill="#111" stroke="#111" stroke-width="2"/></svg>
+          affected
+        </span>
+        <span class="legend-item">
+          <svg width="18" height="18"><circle cx="9" cy="9" r="6" fill="white" stroke="#111" stroke-width="2"/><circle cx="9" cy="9" r="2.7" fill="#555"/></svg>
+          carrier
+        </span>
+        <span class="legend-item">X-linked notation: <code>Xᴿ/Xʳ</code>, <code>Xᴰ/Xᵈ</code></span>
+        <span class="legend-item">Inherited allele labels: <code>M:a F:A</code></span>
+        <span class="legend-item">Two genes: V trait = vertical lines, H trait = horizontal lines</span>
+        <span class="legend-item">Two-gene carriers: circle = V, diamond = H, star = both</span>
+      </div>
+      <details>
+        <summary>Show transmission assumptions</summary>
+        <p>
+          Autosomal: one allele from each parent. X-linked: mothers pass one random X to every child; fathers pass X to daughters and Y to sons.
+        </p>
+      </details>
+    </div>
+  </section>
+
+  <main class="pedigree-wrap">
+    <svg id="pedigree" aria-label="Random pedigree drawing" preserveAspectRatio="xMidYMid meet"></svg>
+  </main>
+
+<script>
+(() => {
+  "use strict";
+
+  const SVG_NS = "http://www.w3.org/2000/svg";
+
+  const MODES = {
+    AR: {
+      key: "AR",
+      label: "Autosomal recessive",
+      locus: "autosomal",
+      description: "Trait allele is recessive: A/a individuals are carriers; only a/a individuals are affected.",
+      traitAlleleFrequency: 0.42
+    },
+    AD: {
+      key: "AD",
+      label: "Autosomal dominant",
+      locus: "autosomal",
+      description: "Trait allele is dominant: A/A and A/a individuals are affected; a/a individuals are unaffected.",
+      traitAlleleFrequency: 0.26
+    },
+    XLR: {
+      key: "XLR",
+      label: "X-linked recessive",
+      locus: "xlinked",
+      description: "Trait allele is recessive on the X chromosome. Males with Xʳ/Y are affected; females need Xʳ/Xʳ to be affected.",
+      traitAlleleFrequency: 0.38
+    },
+    XLD: {
+      key: "XLD",
+      label: "X-linked dominant",
+      locus: "xlinked",
+      description: "Trait allele is dominant on the X chromosome. Any individual with Xᴰ is affected.",
+      traitAlleleFrequency: 0.24
+    }
+  };
+
+  const ROMAN = ["", "I", "II", "III", "IV"];
+
+  // Compact layout constants. The SVG scales to the available panel, so these are
+  // logical drawing units rather than fixed screen pixels.
+  const NODE = 24;
+  const R = NODE / 2;
+  const COUPLE_HALF_GAP = 24;
+  const GENERATION_GAP = 72;
+  const MIN_BRANCH_WIDTH = 72;
+  const CHILD_BRANCH_GAP = 18;
+  const TOP_MARGIN = 24;
+  const LEFT_MARGIN = 46;
+
+  let nextPersonId = 1;
+  let currentPedigree = null;
+
+  const svg = document.getElementById("pedigree");
+  const generateBtn = document.getElementById("generateBtn");
+  const modeSelect = document.getElementById("modeSelect");
+  const showCarriersToggle = document.getElementById("showCarriersToggle");
+  const showGenotypesToggle = document.getElementById("showGenotypesToggle");
+  const showPhenotypesToggle = document.getElementById("showPhenotypesToggle");
+  const showInheritedAllelesToggle = document.getElementById("showInheritedAllelesToggle");
+  const showTwoGenesToggle = document.getElementById("showTwoGenesToggle");
+  const modeLabel = document.getElementById("modeLabel");
+  const modeDescription = document.getElementById("modeDescription");
+  const summaryStats = document.getElementById("summaryStats");
+
+  generateBtn.addEventListener("click", () => generateAndRender());
+  modeSelect.addEventListener("change", () => generateAndRender());
+  showCarriersToggle.addEventListener("change", () => rerenderCurrentPedigree());
+  showGenotypesToggle.addEventListener("change", () => rerenderCurrentPedigree());
+  showPhenotypesToggle.addEventListener("change", () => rerenderCurrentPedigree());
+  showInheritedAllelesToggle.addEventListener("change", () => rerenderCurrentPedigree());
+  showTwoGenesToggle.addEventListener("change", () => rerenderCurrentPedigree());
+
+  function displayOptions() {
+    return {
+      showCarriers: showCarriersToggle.checked,
+      showGenotypes: showGenotypesToggle.checked,
+      showPhenotypes: showPhenotypesToggle.checked,
+      showInheritedAlleles: showInheritedAllelesToggle.checked,
+      showTwoGenes: showTwoGenesToggle.checked
+    };
+  }
+
+  function rerenderCurrentPedigree() {
+    if (currentPedigree) render(currentPedigree);
+  }
+
+  function randInt(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+  }
+
+  function choice(array) {
+    return array[Math.floor(Math.random() * array.length)];
+  }
+
+  function shuffle(array) {
+    const copy = [...array];
+    for (let i = copy.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [copy[i], copy[j]] = [copy[j], copy[i]];
+    }
+    return copy;
+  }
+
+  function chooseMode() {
+    const selected = modeSelect.value;
+    if (selected !== "random") return MODES[selected];
+    return choice(Object.values(MODES));
+  }
+
+  function chooseSecondMode(firstMode) {
+    const candidates = Object.values(MODES).filter(mode => mode.key !== firstMode.key);
+    return choice(candidates);
+  }
+
+  function randomGenotypeForSex(sex, mode) {
+    if (mode.locus === "autosomal") {
+      return {
+        locus: "autosomal",
+        alleles: [randomAutosomalAllele(mode), randomAutosomalAllele(mode)]
+      };
+    }
+
+    if (sex === "F") {
+      return {
+        locus: "xlinked",
+        xs: [randomXAllele(mode), randomXAllele(mode)]
+      };
+    }
+
+    return {
+      locus: "xlinked",
+      x: randomXAllele(mode),
+      y: "Y"
+    };
+  }
+
+  function makeChildGenotypeFromParents(sex, motherGenotype, fatherGenotype, mode) {
+    if (mode.locus === "autosomal") {
+      const maternalAllele = choice(motherGenotype.alleles);
+      const paternalAllele = choice(fatherGenotype.alleles);
+      return {
+        genotype: {
+          locus: "autosomal",
+          alleles: [maternalAllele, paternalAllele]
+        },
+        inherited: {
+          maternal: maternalAllele,
+          paternal: paternalAllele
+        }
+      };
+    }
+
+    const maternalX = choice(motherGenotype.xs);
+
+    if (sex === "F") {
+      return {
+        genotype: {
+          locus: "xlinked",
+          xs: [maternalX, fatherGenotype.x]
+        },
+        inherited: {
+          maternal: maternalX,
+          paternal: fatherGenotype.x
+        }
+      };
+    }
+
+    return {
+      genotype: {
+        locus: "xlinked",
+        x: maternalX,
+        y: "Y"
+      },
+      inherited: {
+        maternal: maternalX,
+        paternal: "Y"
+      }
+    };
+  }
+
+  function makePerson(sex, generation, mode, genotype) {
+    const person = {
+      id: `p${nextPersonId++}`,
+      displayId: "",
+      sex,
+      generation,
+      genotype,
+      affected: false,
+      carrier: false
+    };
+    person.affected = isAffected(person, mode);
+    person.carrier = isCarrier(person, mode);
+    return person;
+  }
+
+  function randomFounder(sex, generation, mode) {
+    return makePerson(sex, generation, mode, randomGenotypeForSex(sex, mode));
+  }
+
+  function randomAutosomalAllele(mode) {
+    const trait = Math.random() < mode.traitAlleleFrequency;
+    if (mode.key === "AR") return trait ? "a" : "A";
+    if (mode.key === "AD") return trait ? "A" : "a";
+    throw new Error("Autosomal allele requested for non-autosomal mode.");
+  }
+
+  function randomXAllele(mode) {
+    const trait = Math.random() < mode.traitAlleleFrequency;
+
+    // X-linked recessive uses R/r, matching the autosomal recessive convention:
+    // uppercase normal allele, lowercase affected allele.
+    if (mode.key === "XLR") return trait ? "r" : "R";
+
+    // X-linked dominant uses D/d, so the normal allele is not shown as Xn.
+    if (mode.key === "XLD") return trait ? "D" : "d";
+
+    throw new Error("X allele requested for non-X-linked mode.");
+  }
+
+  function makeChild(mother, father, generation, mode) {
+    const sex = Math.random() < 0.5 ? "F" : "M";
+    const result = makeChildGenotypeFromParents(sex, mother.genotype, father.genotype, mode);
+    const child = makePerson(sex, generation, mode, result.genotype);
+    child.inherited = result.inherited;
+    return child;
+  }
+
+  function getMother(couple) {
+    return couple.parent1.sex === "F" ? couple.parent1 : couple.parent2;
+  }
+
+  function getFather(couple) {
+    return couple.parent1.sex === "M" ? couple.parent1 : couple.parent2;
+  }
+
+  function oppositeSex(sex) {
+    return sex === "M" ? "F" : "M";
+  }
+
+  function makeFamily(parent1, parent2) {
+    return {
+      parent1,
+      parent2,
+      children: [],
+      childFamilies: {},
+      width: MIN_BRANCH_WIDTH,
+      childWidths: {}
+    };
+  }
+
+  function generatePedigreeOnce(mode) {
+    nextPersonId = 1;
+
+    const people = [];
+    const families = [];
+
+    const founderMale = randomFounder("M", 1, mode);
+    const founderFemale = randomFounder("F", 1, mode);
+    people.push(founderMale, founderFemale);
+
+    const root = makeFamily(founderMale, founderFemale);
+    families.push(root);
+
+    const gen2Count = randInt(3, 5);
+    for (let i = 0; i < gen2Count; i++) {
+      const child = makeChild(founderFemale, founderMale, 2, mode);
+      root.children.push(child);
+      people.push(child);
+    }
+
+    const gen2Parents = shuffle(root.children).slice(0, randInt(1, Math.min(3, root.children.length)));
+    const gen3People = [];
+
+    for (const parent of gen2Parents) {
+      const partner = randomFounder(oppositeSex(parent.sex), 2, mode);
+      people.push(partner);
+
+      const fam = makeFamily(parent, partner);
+      families.push(fam);
+      root.childFamilies[parent.id] = fam;
+
+      const mother = getMother(fam);
+      const father = getFather(fam);
+      const childCount = randInt(2, 4);
+
+      for (let i = 0; i < childCount; i++) {
+        const child = makeChild(mother, father, 3, mode);
+        fam.children.push(child);
+        gen3People.push(child);
+        people.push(child);
+      }
+    }
+
+    const gen3ParentCount = Math.min(randInt(1, 3), gen3People.length);
+    const gen3Parents = shuffle(gen3People).slice(0, gen3ParentCount);
+
+    for (const parent of gen3Parents) {
+      const partner = randomFounder(oppositeSex(parent.sex), 3, mode);
+      people.push(partner);
+
+      const parentFamily = findFamilyContainingChild(root, parent.id);
+      const fam = makeFamily(parent, partner);
+      families.push(fam);
+      parentFamily.childFamilies[parent.id] = fam;
+
+      const mother = getMother(fam);
+      const father = getFather(fam);
+      const childCount = randInt(1, 3);
+
+      for (let i = 0; i < childCount; i++) {
+        const child = makeChild(mother, father, 4, mode);
+        fam.children.push(child);
+        people.push(child);
+      }
+    }
+
+    return { mode, root, people, families };
+  }
+
+  function addSecondTraitToPedigree(ped) {
+    ped.secondMode = chooseSecondMode(ped.mode);
+
+    function assignFounderSecondTrait(person) {
+      if (person.secondGenotype) return;
+      person.secondGenotype = randomGenotypeForSex(person.sex, ped.secondMode);
+      person.secondAffected = isAffectedForGenotype(person.sex, person.secondGenotype, ped.secondMode);
+      person.secondCarrier = isCarrierForGenotype(person.sex, person.secondGenotype, ped.secondMode, person.secondAffected);
+    }
+
+    function assignFamilySecondTrait(family) {
+      assignFounderSecondTrait(family.parent1);
+      assignFounderSecondTrait(family.parent2);
+
+      const mother = getMother(family);
+      const father = getFather(family);
+
+      for (const child of family.children) {
+        if (!child.secondGenotype) {
+          const result = makeChildGenotypeFromParents(child.sex, mother.secondGenotype, father.secondGenotype, ped.secondMode);
+          child.secondGenotype = result.genotype;
+          child.secondInherited = result.inherited;
+          child.secondAffected = isAffectedForGenotype(child.sex, child.secondGenotype, ped.secondMode);
+          child.secondCarrier = isCarrierForGenotype(child.sex, child.secondGenotype, ped.secondMode, child.secondAffected);
+        }
+
+        const childFamily = family.childFamilies[child.id];
+        if (childFamily) assignFamilySecondTrait(childFamily);
+      }
+    }
+
+    assignFamilySecondTrait(ped.root);
+  }
+
+  function generatePedigree(mode) {
+    // Re-roll a few times so the exercise usually contains at least one affected
+    // individual. Inheritance remains Mendelian/random within each generated pedigree.
+    let best = null;
+    for (let attempt = 0; attempt < 120; attempt++) {
+      const ped = generatePedigreeOnce(mode);
+      const affected = ped.people.filter(p => p.affected).length;
+      const carriers = ped.people.filter(p => p.carrier).length;
+      if (!best || affected > best.people.filter(p => p.affected).length) best = ped;
+      if (affected >= 2 || (affected >= 1 && carriers >= 2)) {
+        addSecondTraitToPedigree(ped);
+        return ped;
+      }
+    }
+    addSecondTraitToPedigree(best);
+    return best;
+  }
+
+  function findFamilyContainingChild(family, childId) {
+    if (family.children.some(child => child.id === childId)) return family;
+
+    for (const child of family.children) {
+      const childFamily = family.childFamilies[child.id];
+      if (childFamily) {
+        const result = findFamilyContainingChild(childFamily, child.id === childId ? child.id : childId);
+        if (result) return result;
+      }
+    }
+
+    return null;
+  }
+
+  function assignDisplayIdsByPosition(people, positions) {
+    for (let gen = 1; gen <= 4; gen++) {
+      const peopleInGeneration = people
+        .filter(person => person.generation === gen)
+        .sort((a, b) => positions[a.id].x - positions[b.id].x);
+
+      peopleInGeneration.forEach((person, index) => {
+        person.displayId = `${ROMAN[gen]}-${index + 1}`;
+      });
+    }
+  }
+
+  function isAffected(person, mode) {
+    return isAffectedForGenotype(person.sex, person.genotype, mode);
+  }
+
+  function isAffectedForGenotype(sex, genotype, mode) {
+    if (mode.key === "AR") {
+      return genotype.alleles[0] === "a" && genotype.alleles[1] === "a";
+    }
+
+    if (mode.key === "AD") {
+      return genotype.alleles.includes("A");
+    }
+
+    if (mode.key === "XLR") {
+      if (sex === "M") return genotype.x === "r";
+      return genotype.xs[0] === "r" && genotype.xs[1] === "r";
+    }
+
+    if (mode.key === "XLD") {
+      if (sex === "M") return genotype.x === "D";
+      return genotype.xs.includes("D");
+    }
+
+    return false;
+  }
+
+  function isCarrier(person, mode) {
+    return isCarrierForGenotype(person.sex, person.genotype, mode, person.affected);
+  }
+
+  function isCarrierForGenotype(sex, genotype, mode, affected) {
+    if (affected) return false;
+
+    if (mode.key === "AR") {
+      return genotype.alleles.includes("A") && genotype.alleles.includes("a");
+    }
+
+    if (mode.key === "XLR" && sex === "F") {
+      return genotype.xs.includes("r");
+    }
+
+    return false;
+  }
+
+  function genotypeText(person, mode) {
+    return genotypeTextFor(person.sex, person.genotype, mode);
+  }
+
+  function secondGenotypeText(person, mode) {
+    if (!person.secondGenotype) return "";
+    return genotypeTextFor(person.sex, person.secondGenotype, mode);
+  }
+
+  function genotypeTextFor(sex, genotype, mode) {
+    if (mode.locus === "autosomal") {
+      const alleles = [...genotype.alleles];
+      alleles.sort((a, b) => {
+        if (a === b) return 0;
+        if (/[A-Z]/.test(a) && /[a-z]/.test(b)) return -1;
+        if (/[a-z]/.test(a) && /[A-Z]/.test(b)) return 1;
+        return a.localeCompare(b);
+      });
+      return alleles.join("/");
+    }
+
+    if (mode.key === "XLR") {
+      if (sex === "M") return genotype.x === "r" ? "Xʳ/Y" : "Xᴿ/Y";
+      return genotype.xs
+        .map(x => x === "r" ? "Xʳ" : "Xᴿ")
+        .sort((a, b) => a === b ? 0 : a === "Xᴿ" ? -1 : 1)
+        .join("/");
+    }
+
+    if (mode.key === "XLD") {
+      if (sex === "M") return genotype.x === "D" ? "Xᴰ/Y" : "Xᵈ/Y";
+      return genotype.xs
+        .map(x => x === "D" ? "Xᴰ" : "Xᵈ")
+        .sort((a, b) => a === b ? 0 : a === "Xᴰ" ? -1 : 1)
+        .join("/");
+    }
+
+    return "";
+  }
+
+  function calcFamilyWidth(family) {
+    const childWidths = {};
+    let totalChildWidth = 0;
+
+    for (const child of family.children) {
+      const childFamily = family.childFamilies[child.id];
+      const width = childFamily ? calcFamilyWidth(childFamily) : MIN_BRANCH_WIDTH;
+      childWidths[child.id] = width;
+      totalChildWidth += width;
+    }
+
+    if (family.children.length > 1) {
+      totalChildWidth += CHILD_BRANCH_GAP * (family.children.length - 1);
+    }
+
+    const parentPairWidth = (COUPLE_HALF_GAP * 2) + NODE + 26;
+    family.childWidths = childWidths;
+    family.width = Math.max(parentPairWidth, totalChildWidth, MIN_BRANCH_WIDTH);
+    return family.width;
+  }
+
+  function layoutPedigree(ped) {
+    calcFamilyWidth(ped.root);
+
+    const positions = {};
+    const lines = [];
+
+    layoutFamily(ped.root, LEFT_MARGIN, TOP_MARGIN, positions, lines);
+
+    return { positions, lines };
+  }
+
+  function orderedParents(family) {
+    const p1 = family.parent1;
+    const p2 = family.parent2;
+
+    // Traditional pedigree orientation: male left, female right.
+    if (p1.sex === "M" && p2.sex === "F") return [p1, p2];
+    if (p1.sex === "F" && p2.sex === "M") return [p2, p1];
+    return [p1, p2];
+  }
+
+  function layoutFamily(family, xStart, y, positions, lines) {
+    const center = xStart + family.width / 2;
+    const [leftParent, rightParent] = orderedParents(family);
+
+    positions[leftParent.id] = { x: center - COUPLE_HALF_GAP, y };
+    positions[rightParent.id] = { x: center + COUPLE_HALF_GAP, y };
+
+    lines.push(makeLine(
+      positions[leftParent.id].x + R,
+      y,
+      positions[rightParent.id].x - R,
+      y
+    ));
+
+    if (family.children.length === 0) return;
+
+    const childY = y + GENERATION_GAP;
+    const sibY = y + GENERATION_GAP / 1.5;
+
+    let cursor = xStart + (family.width - totalChildrenWidth(family)) / 2;
+    const childXs = [];
+
+    for (const child of family.children) {
+      const branchWidth = family.childWidths[child.id];
+      const childFamily = family.childFamilies[child.id];
+
+      if (childFamily) {
+        layoutFamily(childFamily, cursor, childY, positions, lines);
+      } else {
+        positions[child.id] = { x: cursor + branchWidth / 2, y: childY };
+      }
+
+      childXs.push(positions[child.id].x);
+      cursor += branchWidth + CHILD_BRANCH_GAP;
+    }
+
+    const parentMidX = (positions[leftParent.id].x + positions[rightParent.id].x) / 2;
+    const minChildX = Math.min(...childXs);
+    const maxChildX = Math.max(...childXs);
+
+    lines.push(makeLine(parentMidX, y, parentMidX, sibY));
+    lines.push(makeLine(minChildX, sibY, maxChildX, sibY));
+
+    for (const childX of childXs) {
+      lines.push(makeLine(childX, sibY, childX, childY - R));
+    }
+  }
+
+  function totalChildrenWidth(family) {
+    if (family.children.length === 0) return 0;
+    const childWidthSum = family.children.reduce((sum, child) => sum + family.childWidths[child.id], 0);
+    return childWidthSum + CHILD_BRANCH_GAP * (family.children.length - 1);
+  }
+
+  function makeLine(x1, y1, x2, y2) {
+    return { x1, y1, x2, y2 };
+  }
+
+  function addPhenotypePatternDefs() {
+    const defs = document.createElementNS(SVG_NS, "defs");
+
+    function makePattern(id, vertical, horizontal) {
+      const pattern = document.createElementNS(SVG_NS, "pattern");
+      pattern.setAttribute("id", id);
+      pattern.setAttribute("patternUnits", "userSpaceOnUse");
+      pattern.setAttribute("width", 6);
+      pattern.setAttribute("height", 6);
+
+      const bg = document.createElementNS(SVG_NS, "rect");
+      bg.setAttribute("width", 6);
+      bg.setAttribute("height", 6);
+      bg.setAttribute("fill", "white");
+      pattern.appendChild(bg);
+
+      if (vertical) {
+        const line = document.createElementNS(SVG_NS, "line");
+        line.setAttribute("x1", 3);
+        line.setAttribute("y1", 0);
+        line.setAttribute("x2", 3);
+        line.setAttribute("y2", 6);
+        line.setAttribute("stroke", "#111");
+        line.setAttribute("stroke-width", 1.2);
+        pattern.appendChild(line);
+      }
+
+      if (horizontal) {
+        const line = document.createElementNS(SVG_NS, "line");
+        line.setAttribute("x1", 0);
+        line.setAttribute("y1", 3);
+        line.setAttribute("x2", 6);
+        line.setAttribute("y2", 3);
+        line.setAttribute("stroke", "#111");
+        line.setAttribute("stroke-width", 1.2);
+        pattern.appendChild(line);
+      }
+
+      defs.appendChild(pattern);
+    }
+
+    makePattern("verticalHatch", true, false);
+    makePattern("horizontalHatch", false, true);
+    makePattern("crossHatch", true, true);
+    svg.appendChild(defs);
+  }
+
+  function render(ped) {
+    currentPedigree = ped;
+    const options = displayOptions();
+    const { positions, lines } = layoutPedigree(ped);
+    assignDisplayIdsByPosition(ped.people, positions);
+    const width = Math.ceil(ped.root.width + LEFT_MARGIN * 2);
+    const height = TOP_MARGIN + GENERATION_GAP * 3 + 96;
+
+    svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+    svg.innerHTML = "";
+    addPhenotypePatternDefs();
+
+    for (let gen = 1; gen <= 4; gen++) {
+      const y = TOP_MARGIN + (gen - 1) * GENERATION_GAP;
+      svg.appendChild(svgText(13, y, ROMAN[gen], "generation-label"));
+    }
+
+    for (const l of lines) {
+      const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("x1", l.x1);
+      line.setAttribute("y1", l.y1);
+      line.setAttribute("x2", l.x2);
+      line.setAttribute("y2", l.y2);
+      line.setAttribute("class", "connector");
+      svg.appendChild(line);
+    }
+
+    const sortedPeople = [...ped.people].sort((a, b) => {
+      const posA = positions[a.id];
+      const posB = positions[b.id];
+      return a.generation - b.generation || posA.x - posB.x;
+    });
+
+    for (const person of sortedPeople) {
+      svg.appendChild(drawPerson(person, positions[person.id], ped, options));
+    }
+
+    if (options.showTwoGenes) {
+      modeLabel.textContent = `V: ${ped.mode.label} | H: ${ped.secondMode.label}`;
+      modeDescription.textContent = "Two-gene mode: V trait affected individuals have vertical hatching; H trait affected individuals have horizontal hatching.";
+    } else {
+      modeLabel.textContent = ped.mode.label;
+      modeDescription.textContent = ped.mode.description;
+    }
+
+    const affected = ped.people.filter(p => p.affected).length;
+    const carriers = ped.people.filter(p => p.carrier).length;
+    const secondAffected = ped.people.filter(p => p.secondAffected).length;
+    const secondCarriers = ped.people.filter(p => p.secondCarrier).length;
+    const females = ped.people.filter(p => p.sex === "F").length;
+    const males = ped.people.filter(p => p.sex === "M").length;
+    const visibleStats = [`${ped.people.length} individuals`, `${males} male`, `${females} female`];
+
+    if (options.showPhenotypes) {
+      if (options.showTwoGenes) {
+        visibleStats.push(`V ${affected} affected`);
+        visibleStats.push(`H ${secondAffected} affected`);
+      } else {
+        visibleStats.push(`${affected} affected`);
+      }
+    }
+
+    if (options.showCarriers) {
+      if (options.showTwoGenes) {
+        if (carriers) visibleStats.push(`V ${carriers} carrier${carriers === 1 ? "" : "s"}`);
+        if (secondCarriers) visibleStats.push(`H ${secondCarriers} carrier${secondCarriers === 1 ? "" : "s"}`);
+      } else if (carriers) {
+        visibleStats.push(`${carriers} carrier${carriers === 1 ? "" : "s"}`);
+      }
+    }
+
+    summaryStats.textContent = `${visibleStats.join(", ")}.`;
+  }
+
+  function inheritedText(person, mode) {
+    return inheritedTextFor(person.inherited, mode);
+  }
+
+  function inheritedTextFor(inherited, mode) {
+    if (!inherited) return "";
+
+    if (mode.locus === "autosomal") {
+      return `M:${inherited.maternal} F:${inherited.paternal}`;
+    }
+
+    const maternal = formatXAllele(inherited.maternal, mode);
+    const paternal = inherited.paternal === "Y" ? "Y" : formatXAllele(inherited.paternal, mode);
+    return `M:${maternal} F:${paternal}`;
+  }
+
+  function formatXAllele(allele, mode) {
+    if (mode.key === "XLR") return allele === "r" ? "Xʳ" : "Xᴿ";
+    if (mode.key === "XLD") return allele === "D" ? "Xᴰ" : "Xᵈ";
+    return allele;
+  }
+
+  function inheritedLines(person, ped, options) {
+    if (!options.showTwoGenes) {
+      const line = inheritedText(person, ped.mode);
+      return line ? [line] : [];
+    }
+
+    const lines = [];
+    const first = inheritedTextFor(person.inherited, ped.mode);
+    const second = inheritedTextFor(person.secondInherited, ped.secondMode);
+    if (first) lines.push(`V ${first}`);
+    if (second) lines.push(`H ${second}`);
+    return lines;
+  }
+
+  function drawInheritedLabel(group, person, ped, options) {
+    const lines = inheritedLines(person, ped, options);
+    if (!lines.length) return;
+
+    const approxWidth = Math.max(34, Math.max(...lines.map(line => line.length)) * 4.7);
+    const height = lines.length === 1 ? 11 : 20;
+    const bg = document.createElementNS(SVG_NS, "rect");
+    bg.setAttribute("x", -approxWidth / 2);
+    bg.setAttribute("y", lines.length === 1 ? -30 : -39);
+    bg.setAttribute("width", approxWidth);
+    bg.setAttribute("height", height);
+    bg.setAttribute("rx", 3);
+    bg.setAttribute("class", "inherited-label-bg");
+    group.appendChild(bg);
+
+    lines.forEach((line, index) => {
+      const label = svgText(0, lines.length === 1 ? -24.5 : -32 + index * 9, line, "inherited-text");
+      group.appendChild(label);
+    });
+  }
+
+  function personFill(person, options) {
+    if (!options.showPhenotypes) return "var(--unaffected)";
+
+    if (!options.showTwoGenes) {
+      return person.affected ? "var(--affected)" : "var(--unaffected)";
+    }
+
+    if (person.affected && person.secondAffected) return "url(#crossHatch)";
+    if (person.affected) return "url(#verticalHatch)";
+    if (person.secondAffected) return "url(#horizontalHatch)";
+    return "var(--unaffected)";
+  }
+
+  function drawCarrierMarker(group, type) {
+    if (type === "circle") {
+      const dot = document.createElementNS(SVG_NS, "circle");
+      dot.setAttribute("cx", 0);
+      dot.setAttribute("cy", 0);
+      dot.setAttribute("r", 3.2);
+      dot.setAttribute("fill", "#555");
+      group.appendChild(dot);
+      return;
+    }
+
+    if (type === "diamond") {
+      const diamond = document.createElementNS(SVG_NS, "polygon");
+      diamond.setAttribute("points", "0,-4.5 4.5,0 0,4.5 -4.5,0");
+      diamond.setAttribute("fill", "#555");
+      group.appendChild(diamond);
+      return;
+    }
+
+    if (type === "star") {
+      const star = document.createElementNS(SVG_NS, "text");
+      star.setAttribute("x", 0);
+      star.setAttribute("y", -1);
+      star.setAttribute("text-anchor", "middle");
+      star.setAttribute("dominant-baseline", "central");
+      star.setAttribute("font-size", "10px");
+      star.setAttribute("font-weight", "800");
+      star.setAttribute("fill", "#555");
+      star.textContent = "★";
+      group.appendChild(star);
+    }
+  }
+
+  function carrierMarkerType(person, options) {
+    if (!options.showTwoGenes) return person.carrier ? "circle" : null;
+    if (person.carrier && person.secondCarrier) return "star";
+    if (person.carrier) return "circle";
+    if (person.secondCarrier) return "diamond";
+    return null;
+  }
+
+  function personTitle(person, ped, options) {
+    const sexText = person.sex === "F" ? "female" : "male";
+    if (!options.showTwoGenes) {
+      return `${person.displayId}: ${sexText}, ${genotypeText(person, ped.mode)}, ${person.affected ? "affected" : person.carrier ? "carrier" : "unaffected"}`;
+    }
+
+    const vStatus = person.affected ? "affected" : person.carrier ? "carrier" : "unaffected";
+    const hStatus = person.secondAffected ? "affected" : person.secondCarrier ? "carrier" : "unaffected";
+    return `${person.displayId}: ${sexText}, V ${genotypeText(person, ped.mode)} (${vStatus}), H ${secondGenotypeText(person, ped.secondMode)} (${hStatus})`;
+  }
+
+  function drawPerson(person, pos, ped, options) {
+    const group = document.createElementNS(SVG_NS, "g");
+    group.setAttribute("transform", `translate(${pos.x}, ${pos.y})`);
+
+    if (options.showInheritedAlleles) {
+      drawInheritedLabel(group, person, ped, options);
+    }
+
+    let shape;
+    if (person.sex === "F") {
+      shape = document.createElementNS(SVG_NS, "circle");
+      shape.setAttribute("cx", 0);
+      shape.setAttribute("cy", 0);
+      shape.setAttribute("r", R);
+    } else {
+      shape = document.createElementNS(SVG_NS, "rect");
+      shape.setAttribute("x", -R);
+      shape.setAttribute("y", -R);
+      shape.setAttribute("width", NODE);
+      shape.setAttribute("height", NODE);
+      shape.setAttribute("rx", 1.5);
+    }
+
+    shape.setAttribute("class", "person-shape");
+    shape.setAttribute("fill", personFill(person, options));
+    group.appendChild(shape);
+
+    if (options.showCarriers) {
+      const markerType = carrierMarkerType(person, options);
+      if (markerType) drawCarrierMarker(group, markerType);
+    }
+
+    const idText = svgText(0, 20, person.displayId, "person-text");
+    group.appendChild(idText);
+
+    if (options.showGenotypes) {
+      if (options.showTwoGenes) {
+        const gText = svgText(0, 30, `V:${genotypeText(person, ped.mode)}`, "genotype-text");
+        const g2Text = svgText(0, 39, `H:${secondGenotypeText(person, ped.secondMode)}`, "second-genotype-text");
+        group.appendChild(gText);
+        group.appendChild(g2Text);
+      } else {
+        const gText = svgText(0, 30, genotypeText(person, ped.mode), "genotype-text");
+        group.appendChild(gText);
+      }
+    }
+
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = personTitle(person, ped, options);
+    group.appendChild(title);
+
+    return group;
+  }
+
+  function svgText(x, y, text, className) {
+    const el = document.createElementNS(SVG_NS, "text");
+    el.setAttribute("x", x);
+    el.setAttribute("y", y);
+    el.setAttribute("class", className);
+    el.textContent = text;
+    return el;
+  }
+
+  function generateAndRender() {
+    const mode = chooseMode();
+    const ped = generatePedigree(mode);
+    render(ped);
+  }
+
+  generateAndRender();
+})();
+</script>
+</body>
+</html>
