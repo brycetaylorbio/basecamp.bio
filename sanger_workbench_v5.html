@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#303b4b">
+<title>Sanger // Trace Deck</title>
+<style>
+:root{--case:#303b4b;--case-deep:#222c3a;--panel:#dae3c3;--lcd:#e4ebd2;--ink:#263b42;--muted:#718076;--edge:#97a596;--accent:#bedf73;--key:#58687c;--light:#edf1dc;--row-h:152px;color-scheme:light}
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;font-family:Consolas,'Courier New',monospace;background:#19232d}button,textarea{font:inherit}button,a.key{cursor:pointer;-webkit-tap-highlight-color:transparent}button:focus-visible,a.key:focus-visible,textarea:focus-visible{outline:2px solid #a5f267;outline-offset:2px}
+#device{height:100vh;height:100dvh;width:100%;max-width:620px;margin:auto;background:var(--case);display:grid;grid-template-rows:minmax(0,1fr) auto minmax(135px,23dvh);padding:10px 10px max(11px,env(safe-area-inset-bottom));gap:9px;overflow:hidden;box-shadow:0 0 0 2px #1b222d,0 10px 30px #0005}
+#screen{min-height:0;display:flex;flex-direction:column;background:var(--lcd);border-radius:12px;border:3px solid #a5b49c;box-shadow:inset 0 0 0 2px #5a706f,0 2px 0 #151f2a;overflow:hidden;color:var(--ink)}
+#mast{flex:0 0 auto;display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;padding:8px 10px 6px;border-bottom:2px solid #aec2ab;min-height:48px;background:linear-gradient(#eef2de,#d9e3c7)}
+#origin{border:1px solid #90a69d;border-radius:5px;padding:4px 6px;display:flex;align-items:center;gap:5px;font-size:10px;font-weight:800;white-space:nowrap;color:#2c4a53}
+#origin .arrow{font-size:19px;line-height:.7}#file-meta{min-width:0}#brand{font-size:11px;font-weight:900;letter-spacing:1.3px}#filename{display:block;font-size:10px;color:#65776c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:3px}#chip{font-size:10px;text-align:right;white-space:nowrap;color:#35624c;font-weight:bold}#chip small{font-size:9px;color:#6a7e72;display:block;margin-top:2px}
+#hint{display:flex;justify-content:space-between;align-items:center;gap:5px;min-height:26px;border-bottom:1px solid #b9cab4;padding:3px 10px;font-size:10px;color:#657768;background:#e2ead1}#hint strong{font-size:10px;color:#37565b;font-weight:800}#modeTag{white-space:nowrap;color:#586b63;font-size:9px;text-align:right}
+#trace-scroll{position:relative;overflow-y:auto;overflow-x:hidden;touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;scrollbar-color:#93aa92 transparent;flex:1 1 auto;min-height:0;background:repeating-linear-gradient(0deg,#e5ecd8 0,#e5ecd8 29px,#dfe8ce 30px)}
+.trace-row{height:var(--row-h);position:relative;border-bottom:1px dashed #a8b9ad;overflow:hidden;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}canvas.trace{width:100%;height:100%;display:block;pointer-events:none}.bases{position:absolute;left:0;top:0;right:0;height:31px;display:grid;grid-template-columns:repeat(24,minmax(0,1fr));padding-top:11px;user-select:none;-webkit-user-select:none;touch-action:pan-y}.base{font-size:clamp(10px,3.05vw,14px);line-height:19px;font-weight:900;text-align:center;position:relative;z-index:1;color:#25383c;touch-action:pan-y;-webkit-touch-callout:none;white-space:nowrap}.base.low{opacity:.42}.base.sel{background:#9ec6e0a8;border-bottom:3px solid #447294;opacity:1}.base.hit{box-shadow:inset 0 -4px 0 #e99a31;background:#f4ce739c;opacity:1}.base.anchor{outline:1px solid #527a9d;outline-offset:-1px;background:#8eb1d7}.bases .empty{pointer-events:none}.row-index{position:absolute;top:0;left:6px;font-size:9px;color:#7e9786;z-index:1;pointer-events:none}.row-last{position:absolute;top:0;right:6px;font-size:9px;color:#7e9786;z-index:1;pointer-events:none}.row-flag{position:absolute;bottom:4px;right:6px;font-size:8px;color:#9bada0;pointer-events:none}
+#control-deck{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;min-height:57px} .key{height:58px;text-decoration:none;min-width:0;border:1px solid #8795a6;border-bottom:4px solid #1d2735;border-radius:7px;background:linear-gradient(#677b90,#506276);color:white;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;font-size:8.5px;letter-spacing:-.1px;font-weight:bold;box-shadow:inset 0 1px 0 #ffffff22;padding:0 1px}.key svg{width:17px;height:17px;stroke-width:2;stroke:currentColor;fill:none;stroke-linecap:round;stroke-linejoin:round}.key:active{transform:translateY(2px);border-bottom-width:2px;background:#8494a2}.key.hot{background:linear-gradient(#89a65d,#637d46);border-color:#a2b787;border-bottom-color:#33452b;color:#fff}.key.active{background:linear-gradient(#d0cb85,#a09c56);border-color:#e0d8a3;border-bottom-color:#706c37;color:#27332f}
+#buffer-area{min-height:0;display:flex;flex-direction:column;border:3px solid #202b39;border-radius:10px;overflow:hidden;background:var(--panel);box-shadow:inset 0 0 0 1px #aebaa1}#buffer-title{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:7px 9px 5px;border-bottom:1px solid #aab8a5;flex:0 0 auto}#buffer-title strong{font-size:11px;letter-spacing:1px;color:#334951}#buffer-count{color:#58724a;font-size:10px;font-weight:bold}.tiny{background:#c6d4b3;border:1px solid #9dae99;border-radius:3px;padding:2px 5px;color:#40594e;font-weight:800;font-size:9px}.tiny:active{background:#9eba82}.buffer-tools{display:flex;gap:4px;align-items:center}#buffer{display:block;resize:none;width:100%;flex:1;min-height:38px;padding:9px 10px 5px;background:transparent;border:0;outline:none;color:#2a4141;font-size:14px;line-height:1.55;letter-spacing:1px;overflow-y:auto;word-break:break-all}#buffer::placeholder{color:#80917e;font-size:11px;letter-spacing:0}#bottomline{flex:0 0 auto;border-top:1px solid #b6c4ae;padding:4px 9px;display:flex;align-items:center;justify-content:space-between;gap:6px;color:#6a7d70;font-size:9px;min-height:22px}#status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;font-size:9px;color:#667770}#toast{position:fixed;top:max(18px,env(safe-area-inset-top));left:50%;transform:translate(-50%,-15px);max-width:min(88vw,420px);border:2px solid #78977b;background:#223e40;color:#edf7d6;padding:10px 14px;border-radius:7px;font-size:12px;font-weight:bold;z-index:10;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;box-shadow:0 6px 20px #0004;text-align:center}#toast.visible{opacity:1;transform:translate(-50%,0)}#importFile{display:none}
+#find-overlay{position:fixed;inset:0;background:#101e2dc4;display:none;align-items:center;justify-content:center;z-index:9;padding:14px}#find-overlay.open{display:flex}#find-dialog{width:min(100%,450px);max-height:min(88dvh,730px);display:flex;flex-direction:column;border-radius:12px;border:3px solid #8fa898;background:var(--lcd);color:var(--ink);box-shadow:0 15px 45px #0008;overflow:hidden}#find-top{background:#d3dfbd;display:flex;justify-content:space-between;align-items:center;padding:11px 12px;border-bottom:2px solid #94aa96;gap:10px}#find-top strong{font-size:14px;letter-spacing:1px}#findClose{border:1px solid #71877e;background:#526477;color:white;border-radius:5px;padding:5px 10px;font-weight:900}#find-body{padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:12px}#findQuery{width:100%;border:2px solid #9bae9b;border-radius:5px;background:#fffef1;color:#263b42;font-size:17px;font-weight:bold;padding:10px;text-transform:uppercase;letter-spacing:1px}#find-options{display:flex;align-items:center;gap:8px;font-size:11px;line-height:1.4;font-weight:bold}#find-options input{width:18px;height:18px;accent-color:#557654;flex-shrink:0}#find-results{display:flex;flex-direction:column;gap:7px;min-height:95px}#find-summary{font-size:11px;font-weight:bold;color:#5b7569}#find-results button{background:#eaf0da;border:1px solid #acbfac;border-radius:5px;color:#344a45;min-height:39px;text-align:left;padding:8px 9px;display:flex;align-items:center;gap:8px;justify-content:space-between;font-size:12px;font-weight:bold}#find-results button:active{background:#bdd7b7}.find-tag{font-size:9px;background:#607789;color:white;padding:5px 6px;border-radius:4px;white-space:nowrap}.find-pos{font-size:10px;color:#597367;white-space:nowrap}#find-guide{font-size:10px;line-height:1.5;color:#6c8072}
+@media (min-width:621px){#device{border-radius:15px;max-height:960px;height:min(100dvh,960px);padding:15px;gap:12px}body{display:flex;align-items:center;justify-content:center}#control-deck{gap:7px}.key{height:65px;font-size:10px}.base{font-size:15px}}
+@media (max-width:365px){#device{padding:6px;gap:7px;grid-template-rows:minmax(0,1fr) auto minmax(115px,22dvh)}#mast{gap:6px;padding:7px 6px}#origin{font-size:9px;padding:3px}#control-deck{gap:2px}.key{height:52px;font-size:7.2px}.key svg{width:16px;height:16px}#brand{font-size:10px}#hint{padding:3px 6px;font-size:9px}}
+@media (max-height:650px){#device{grid-template-rows:minmax(0,1fr) auto 120px}#mast{min-height:39px;padding:5px 8px}#hint{min-height:22px}#control-deck .key{height:49px;gap:2px}#buffer-title{padding:4px 8px}#bottomline{padding:2px 7px}}
+</style>
+</head>
+<body>
+<main id="device" aria-label="Sanger Trace Deck">
+<section id="screen" aria-label="Sanger chromatogram">
+  <div id="mast">
+    <div id="origin" title="Arrow shows original read direction relative to the display"><span class="arrow" id="arrow">→</span><span>ORIG<br>5′→3′</span></div>
+    <div id="file-meta"><div id="brand">SANGER <span style="color:#5f8751">//</span> TRACE DECK</div><span id="filename">demo_trace.ab1 • DEMO</span></div>
+    <div id="chip">Q <span id="qstat">--</span><small id="bpstat">0 BASES</small></div>
+  </div>
+  <div id="hint"><strong id="selectionLabel">TAP TWO BASES TO SELECT</strong><span id="modeTag">ORIGINAL · 24/ROW</span></div>
+  <div id="trace-scroll" aria-label="Scroll vertically through Sanger peaks; tap two bases to select a range"></div>
+</section>
+<nav id="control-deck" aria-label="Sequence controls">
+  <button class="key hot" id="copyBtn" title="Copy selection to buffer and clipboard"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>COPY</button>
+  <button class="key" id="searchBtn" title="Find a sequence in the chromatogram"><svg viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.6"/><path d="m16 16 5 5"/></svg>FIND</button>
+  <a class="key" id="blastBtn" href="https://blast.ncbi.nlm.nih.gov/Blast.cgi?PAGE_TYPE=BlastSearch&amp;PROGRAM=blastn" target="_blank" rel="noopener noreferrer" title="Open standard NCBI nucleotide database BLAST with sequence preloaded"><svg viewBox="0 0 24 24"><path d="M5 19 12 3l7 16M8 13h8"/><path d="M3 21h18"/></svg>BLAST</a>
+  <button class="key" id="exportBtn" title="Export lower window as FASTA"><svg viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v3h16v-3"/></svg>EXPORT</button>
+  <button class="key" id="importBtn" title="Import an .ab1 trace"><svg viewBox="0 0 24 24"><path d="M12 21V8m0 0-4 4m4-4 4 4"/><path d="M4 7V4h16v3"/></svg>IMPORT</button>
+  <button class="key" id="reverseBtn" aria-pressed="false" title="Reverse the entire trace; preserves original dye colors"><svg viewBox="0 0 24 24"><path d="m7 5-4 4 4 4M3 9h15a3 3 0 0 1 0 6h-3"/><path d="m17 11 4 4-4 4"/></svg>REVERSE</button>
+  <button class="key" id="complementBtn" aria-pressed="false" title="Complement all base labels; preserves original dye colors"><svg viewBox="0 0 24 24"><path d="M5 4v16m14-16v16M5 8h14M5 16h14"/><path d="m9 5 3-2 3 2m-6 14 3 2 3-2"/></svg>COMP</button>
+</nav>
+<section id="buffer-area" aria-label="Sequence buffer">
+  <div id="buffer-title"><strong>SEQUENCE BUFFER</strong><div class="buffer-tools"><span id="buffer-count">0 BP</span><button id="pasteBtn" class="tiny" title="Paste from clipboard">PASTE</button><button id="clearBtn" class="tiny" title="Clear sequence buffer">CLEAR</button></div></div>
+  <textarea id="buffer" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="characters" aria-label="DNA sequence buffer" placeholder="Selected bases collect here. You can also paste or type DNA…"></textarea>
+  <div id="bottomline"><span id="status">SIMULATED TRACE · IMPORT .AB1 TO BEGIN</span><span>v1.4</span></div>
+</section>
+<input type="file" id="importFile" accept=".ab1,.abi,application/octet-stream">
+</main>
+<div id="find-overlay" role="presentation"><section id="find-dialog" role="dialog" aria-modal="true" aria-labelledby="find-title"><header id="find-top"><strong id="find-title">FIND IN TRACE</strong><button id="findClose" type="button" aria-label="Close find">✕</button></header><div id="find-body"><input id="findQuery" type="text" spellcheck="false" autocomplete="off" autocorrect="off" autocapitalize="characters" placeholder="ENTER DNA MOTIF" aria-label="Search DNA motif"><label id="find-options"><input id="findAll" type="checkbox" checked> SEARCH ALL 4 ORIENTATIONS (FORWARD / REVERSE / COMPLEMENT / REV-COMP)</label><div id="find-summary" aria-live="polite">Enter a DNA sequence to find its positions.</div><div id="find-results"></div><div id="find-guide">Results are matched against the BASE CALLS currently shown, including any reverse or complement transformations. Tap a match to jump to it and select the bases. Orange markers show matches in the trace.</div></div></section></div><div id="toast" role="status" aria-live="polite"></div>
+<script>
+'use strict';
+(() => {
+const $=id=>document.getElementById(id);
+const scroll=$('trace-scroll'),buffer=$('buffer'),baseMap={A:'T',T:'A',C:'G',G:'C',R:'Y',Y:'R',S:'S',W:'W',K:'M',M:'K',B:'V',V:'B',D:'H',H:'D',N:'N'};
+const COLORS={A:'#218b55',C:'#256bc7',G:'#39434a',T:'#d44e58',N:'#6e7c80'};
+const state={name:'demo_trace.ab1',demo:true,sequence:'',locations:[],qualities:[],traces:{},numSamples:0,reverse:false,complement:false,selection:{anchor:null,end:null},rowHeight:155,renderRows:[],warnings:[],findHits:[],activeFind:null};
+let noticeTimer=null,holdTimer=null,pressStart=null,lastTouchAt=0;
+function notify(message){$('toast').textContent=message;$('toast').classList.add('visible');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('toast').classList.remove('visible'),2500)}
+function cleanSequence(text){return (text||'').replace(/^>[^\r\n]*[\r\n]?/gm,'').replace(/[^ACGTRYSWKMBDHVN]/gi,'').toUpperCase()}
+function currentBases(){const b=state.reverse?[...state.sequence].reverse().join(''):state.sequence;return state.complement?[...b].map(x=>baseMap[x]||'N').join(''):b}
+function displayQual(i){if(!state.qualities.length)return null;let index=state.reverse?state.sequence.length-i-1:i;return state.qualities[index]??null}
+function chosenIndices(){const {anchor,end}=state.selection;if(anchor===null)return null;return [Math.min(anchor,end??anchor),Math.max(anchor,end??anchor)]}
+function chosenSequence(){const ix=chosenIndices();return ix?currentBases().slice(ix[0],ix[1]+1):''}
+function updateHeader(){const sel=chosenIndices(),quals=sel?Array.from({length:sel[1]-sel[0]+1},(_,k)=>displayQual(sel[0]+k)).filter(x=>Number.isFinite(x)):state.qualities.filter(x=>Number.isFinite(x)); const q=quals.length?Math.round(quals.reduce((a,b)=>a+b,0)/quals.length):null;$('qstat').textContent=q===null?'—':q;$('bpstat').textContent=(sel?sel[1]-sel[0]+1:state.sequence.length)+' BP'+(sel?' SEL':'');$('filename').textContent=state.name+(state.demo?' • DEMO':'');$('arrow').textContent=state.reverse?'←':'→';const flags=[state.reverse?'REVERSED':'ORIGINAL',state.complement?'COMPLEMENT':'BASE CALLS'];$('modeTag').textContent=flags.join(' · ');$('reverseBtn').classList.toggle('active',state.reverse);$('reverseBtn').setAttribute('aria-pressed',String(state.reverse));$('complementBtn').classList.toggle('active',state.complement);$('complementBtn').setAttribute('aria-pressed',String(state.complement));if(sel){$('selectionLabel').textContent=(sel[0]+1)+'–'+(sel[1]+1)+'  /  '+(sel[1]-sel[0]+1)+' SELECTED'}else{$('selectionLabel').textContent='TAP TWO BASES TO SELECT'} }
+function updateBuffer(){const seq=cleanSequence(buffer.value);$('buffer-count').textContent=seq.length+' BP';$('status').textContent=state.demo?'SIMULATED TRACE • LOAD AN .AB1 FILE':state.warnings.length?state.warnings.join(' · '):'LOCAL DATA ONLY • NOT UPLOADED';}
+function choose(i){const s=state.selection;if(s.anchor===null||s.end!==null){s.anchor=i;s.end=null}else{s.end=i}updateHeader();updateSelectionStyles();if(s.end===null)notify('Base '+(i+1)+' selected · tap another base');else notify((Math.abs(s.end-s.anchor)+1)+' bases selected');}
+function updateSelectionStyles(){const range=chosenIndices();document.querySelectorAll('.base[data-i]').forEach(el=>{const n=+el.dataset.i;el.classList.toggle('sel',!!range&&n>=range[0]&&n<=range[1]);el.classList.toggle('anchor',n===state.selection.anchor);el.classList.toggle('hit',state.findHits.some(h=>n>=h.start&&n<=h.end))});drawAll();}
+// Touch gestures use the whole chromatogram row as a hit target, not just the tiny letter.
+// A stationary touch can select after a hold; a short tap selects immediately.
+// Any moving touch is left to the browser's native vertical scrolling.
+function cancelPress(){if(holdTimer!==null){clearTimeout(holdTimer);holdTimer=null}}
+function traceIndexAt(clientX,clientY,target){
+  let row=target?.closest?.('.trace-row');
+  if(!row)row=document.elementFromPoint(clientX,clientY)?.closest?.('.trace-row');
+  if(!row||!scroll.contains(row))return null;
+  const rect=row.getBoundingClientRect();
+  const offset=Math.min(23,Math.max(0,Math.floor((clientX-rect.left)/rect.width*24)));
+  return Math.min(state.sequence.length-1,Number(row.dataset.start)+offset);
+}
+function touchStart(ev){
+  if(ev.touches.length!==1){cancelPress();pressStart=null;return}
+  cancelPress();const t=ev.touches[0],idx=traceIndexAt(t.clientX,t.clientY,ev.target);
+  if(idx===null)return;
+  pressStart={id:t.identifier,x:t.clientX,y:t.clientY,scrollY:scroll.scrollTop,index:idx,fired:false,moved:false};
+  holdTimer=setTimeout(()=>{
+    if(!pressStart||pressStart.moved)return;
+    pressStart.fired=true;choose(pressStart.index);
+    try{navigator.vibrate?.(15)}catch(_){}
+    holdTimer=null;
+  },430);
+}
+function touchMove(ev){
+  if(!pressStart)return;
+  if(ev.touches.length!==1){cancelPress();pressStart=null;return}
+  const t=ev.touches[0];
+  if(t.identifier!==pressStart.id)return;
+  if(Math.hypot(t.clientX-pressStart.x,t.clientY-pressStart.y)>11||Math.abs(scroll.scrollTop-pressStart.scrollY)>4){
+    pressStart.moved=true;cancelPress();
+  }
+}
+function touchEnd(ev){
+  if(!pressStart)return;
+  const t=Array.from(ev.changedTouches).find(t=>t.identifier===pressStart.id);
+  if(!t)return;
+  lastTouchAt=Date.now();
+  const press=pressStart;pressStart=null;cancelPress();
+  const moved=press.moved||Math.hypot(t.clientX-press.x,t.clientY-press.y)>11||Math.abs(scroll.scrollTop-press.scrollY)>4;
+  if(!moved&&!press.fired)choose(press.index);
+}
+scroll.addEventListener('touchstart',touchStart,{passive:true});
+scroll.addEventListener('touchmove',touchMove,{passive:true});
+scroll.addEventListener('touchend',touchEnd,{passive:true});
+scroll.addEventListener('touchcancel',()=>{lastTouchAt=Date.now();cancelPress();pressStart=null},{passive:true});
+scroll.addEventListener('scroll',()=>{if(pressStart&&Math.abs(scroll.scrollTop-pressStart.scrollY)>4){pressStart.moved=true;cancelPress()}},{passive:true});
+scroll.addEventListener('contextmenu',ev=>ev.preventDefault());
+// Desktop mouse selection also works anywhere in each trace row.
+scroll.addEventListener('click',ev=>{
+  if(Date.now()-lastTouchAt<1000)return; // avoid duplicated synthetic clicks after touch
+  const idx=traceIndexAt(ev.clientX,ev.clientY,ev.target);
+  if(idx!==null)choose(idx);
+});
+function drawAll(){state.renderRows.forEach(drawRow)}
+function pointOfDisplay(i){const idx=state.reverse?state.sequence.length-1-i:i;return state.locations[idx]??idx*12}
+function sampleToPixel(sample,first,last,width){let s=state.reverse?state.numSamples-1-sample:sample;let lo=first,hi=last;const loc=i=>state.reverse?state.numSamples-1-pointOfDisplay(i):pointOfDisplay(i);if(s<=loc(lo))return (s-loc(lo))/(loc(lo+1)-loc(lo)||12)*width/24;
+if(s>=loc(hi))return (hi-lo+(s-loc(hi))/(loc(hi)-loc(hi-1)||12))*width/24;
+while(lo+1<hi){let mid=(lo+hi)>>1;if(loc(mid)<=s)lo=mid;else hi=mid;}const d=loc(lo+1)-loc(lo)||12;return (lo-first+(s-loc(lo))/d)*width/24;}
+function drawRow(row){const {canvas,start,end}=row,cssWidth=canvas.clientWidth,cssHeight=canvas.clientHeight;if(!cssWidth||!cssHeight)return;const ratio=Math.min(window.devicePixelRatio||1,2);const pxW=Math.max(1,Math.round(cssWidth*ratio)),pxH=Math.max(1,Math.round(cssHeight*ratio));if(canvas.width!==pxW||canvas.height!==pxH){canvas.width=pxW;canvas.height=pxH}const ctx=canvas.getContext('2d');ctx.setTransform(ratio,0,0,ratio,0,0);ctx.clearRect(0,0,cssWidth,cssHeight);const plotTop=37,plotBottom=Math.max(plotTop+20,cssHeight-12),w=cssWidth,h=plotBottom-plotTop,cell=w/24;ctx.fillStyle='#dae6d2';ctx.fillRect(0,0,w,34);ctx.fillStyle='#d7e1cd';ctx.fillRect(0,plotBottom,w,cssHeight-plotBottom);
+// Simple plotting grid.
+ctx.strokeStyle='#b4c4b6';ctx.lineWidth=.6;for(let k=0;k<=3;k++){let y=plotTop+k*h/3;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}ctx.strokeStyle='#c4d0c2';for(let k=0;k<=24;k+=4){const x=k*cell;ctx.beginPath();ctx.moveTo(x,plotTop);ctx.lineTo(x,plotBottom);ctx.stroke();}
+const range=chosenIndices();for(const hit of state.findHits){for(let b=Math.max(start,hit.start);b<=Math.min(end-1,hit.end);b++){ctx.fillStyle='#f4c66b35';ctx.fillRect((b-start)*cell,31,cell,cssHeight-31);}}if(range){for(let b=Math.max(start,range[0]);b<=Math.min(end-1,range[1]);b++){ctx.fillStyle='#91bcdc38';ctx.fillRect((b-start)*cell,31,cell,cssHeight-31);}}
+const getP=i=>{const n=state.reverse?state.sequence.length-1-i:i;return state.locations[n]??n*12};
+const firstCenter=getP(start), lastCenter=getP(end-1),leading=start>0?Math.abs(getP(start-1)-firstCenter)/2:(end-start>1?Math.abs(getP(start+1)-firstCenter)/2:6),trailing=end<state.sequence.length?Math.abs(getP(end)-lastCenter)/2:(end-start>1?Math.abs(lastCenter-getP(end-2))/2:6);
+const pStart=Math.max(0,Math.floor(Math.min(firstCenter,lastCenter)-leading)),pEnd=Math.min(state.numSamples-1,Math.ceil(Math.max(firstCenter,lastCenter)+trailing));
+// Each channel is plotted using the actual ABI dye traces. Reversing flips positions only.
+const channels=['G','A','T','C'];let arr=[];for(let p=pStart;p<=pEnd;p++){for(const c of channels){const n=state.traces[c]?.[p]||0;if(n>0)arr.push(n)}}arr.sort((a,b)=>a-b);const maxVal=Math.max(1,arr[Math.floor(arr.length*.992)]||1);
+for(const c of channels){const samples=state.traces[c];if(!samples||!samples.length)continue;ctx.beginPath();ctx.strokeStyle=COLORS[c];ctx.lineWidth=c==='G'?1.45:1.65;ctx.globalAlpha=.9;let has=false;for(let p=pStart;p<=pEnd;p++){const mapped=state.reverse?(state.numSamples-1-p):p;let l=start,r=end-1;const dloc=i=>state.reverse?state.numSamples-1-getP(i):getP(i);if(mapped<dloc(l)){l=start;r=Math.min(end-1,start+1)}else if(mapped>dloc(r)){l=Math.max(start,end-2);r=end-1}else{while(l+1<r){const m=(l+r)>>1;if(dloc(m)<=mapped)l=m;else r=m;}r=l+1}
+const frac=(mapped-dloc(l))/(dloc(r)-dloc(l)||12);const x=((l-start)+frac+.5)*cell;const val=Math.min(1,(samples[p]||0)/maxVal);const y=plotBottom-3-val*(h-8);if(!has){ctx.moveTo(x,y);has=true}else ctx.lineTo(x,y)}if(has)ctx.stroke();ctx.globalAlpha=1;}
+// Faint quality bars underneath base calls. Actual qualities remain visible numerically in header.
+for(let i=start;i<end;i++){const q=displayQual(i);if(q!==null){const x=(i-start)*cell+cell/2;ctx.fillStyle=q>=30?'#549467':q>=20?'#bba05d':'#bf7973';ctx.globalAlpha=.65;ctx.fillRect(x-Math.max(1,cell*.24),32,Math.max(2,cell*.48),Math.max(1,Math.min(4,q/10)));ctx.globalAlpha=1;}}
+}
+function buildRows(){scroll.innerHTML='';state.renderRows=[];const seq=currentBases(),total=seq.length;const f=document.createDocumentFragment();for(let start=0;start<total;start+=24){const end=Math.min(start+24,total),row=document.createElement('div');row.className='trace-row';row.dataset.start=start;const canvas=document.createElement('canvas');canvas.className='trace';canvas.setAttribute('aria-hidden','true');row.appendChild(canvas);const nums=document.createElement('div');nums.className='row-index';nums.textContent=String(start+1).padStart(3,'0');row.appendChild(nums);const right=document.createElement('div');right.className='row-last';right.textContent=end;row.appendChild(right);const labelLayer=document.createElement('div');labelLayer.className='bases';for(let i=start;i<start+24;i++){const cell=document.createElement('div');if(i<end){cell.className='base';cell.dataset.i=i;cell.textContent=seq[i];cell.setAttribute('aria-label','Base '+(i+1)+': '+seq[i]);const q=displayQual(i);if(q!==null&&q<20)cell.classList.add('low');}else cell.className='empty';labelLayer.appendChild(cell)}row.appendChild(labelLayer);f.appendChild(row);state.renderRows.push({canvas,start,end});}scroll.appendChild(f);updateHeader();const range=chosenIndices();document.querySelectorAll('.base[data-i]').forEach(el=>{const n=+el.dataset.i;if(range&&n>=range[0]&&n<=range[1])el.classList.add('sel');if(n===state.selection.anchor)el.classList.add('anchor');if(state.findHits.some(h=>n>=h.start&&n<=h.end))el.classList.add('hit')});requestAnimationFrame(drawAll);}
+function refreshSize(){const h=scroll.clientHeight;if(!h)return;const newSize=Math.max(90,Math.floor(h/3));if(newSize!==state.rowHeight){state.rowHeight=newSize;document.documentElement.style.setProperty('--row-h',newSize+'px')}requestAnimationFrame(drawAll)}
+function transform(which){if(!state.sequence)return;if(which==='reverse'){state.reverse=!state.reverse;let s=state.selection,n=state.sequence.length;if(s.anchor!==null){s.anchor=n-1-s.anchor;if(s.end!==null)s.end=n-1-s.end}}else state.complement=!state.complement;state.findHits=[];state.activeFind=null;const fraction=scroll.scrollHeight>scroll.clientHeight?scroll.scrollTop/(scroll.scrollHeight-scroll.clientHeight):0;buildRows();scroll.scrollTop=fraction*Math.max(0,scroll.scrollHeight-scroll.clientHeight);requestAnimationFrame(drawAll);if($('find-overlay').classList.contains('open'))runFind();}
+function readAb1(arrayBuffer){const view=new DataView(arrayBuffer),bytes=new Uint8Array(arrayBuffer);if(bytes.length<34||String.fromCharCode(...bytes.subarray(0,4))!=='ABIF')throw Error('This does not appear to be an AB1 / ABIF file.');function check(off,len){if(off<0||len<0||off+len>view.byteLength)throw Error('Corrupt AB1 file: a data field extends beyond file bounds.')}function u16(off){check(off,2);return view.getUint16(off,false)}function u32(off){check(off,4);return view.getUint32(off,false)}function ascii(offset,size){check(offset,size);let str='';for(let i=offset;i<offset+size;i++)str+=String.fromCharCode(bytes[i]);return str.replace(/\0/g,'')}
+const count=u32(6+12),dirStart=u32(6+20);if(count<1||count>15000)throw Error('Invalid AB1 directory.');check(dirStart,count*28);const dir=new Map();for(let i=0;i<count;i++){const off=dirStart+28*i;const tag=ascii(off,4),number=u32(off+4),type=u16(off+8),size=u16(off+10),n=u32(off+12),dataSize=u32(off+16),pointer=u32(off+20);if(dataSize>30_000_000)continue;const dataOff=dataSize<=4?off+20:pointer;if(dataOff+dataSize>view.byteLength)continue;dir.set(tag+'_'+number,{tag,number,type,size,n,dataSize,dataOff});}
+function field(tag,no=1){return dir.get(tag+'_'+no)}function textEntry(item){if(!item)return '';let str=ascii(item.dataOff,item.dataSize);if(item.type===18||item.type===19)str=str.replace(/^\x00/,'');return str.trim()}function numbers(item){if(!item)return [];const out=[],len=Math.min(item.n,3_000_000);if(item.type===4||item.type===3){for(let i=0;i<len;i++){const pos=item.dataOff+i*2;if(pos+2>view.byteLength)break;out.push(item.type===3?view.getInt16(pos,false):view.getUint16(pos,false))}}else if(item.type===1||item.type===2){for(let i=0;i<len;i++){const pos=item.dataOff+i;if(pos>=view.byteLength)break;out.push(bytes[pos])}}else if(item.type===5){for(let i=0;i<len;i++){const pos=item.dataOff+i*4;if(pos+4>view.byteLength)break;out.push(view.getInt32(pos,false))}}return out;}
+let sequence=(textEntry(field('PBAS',2))||textEntry(field('PBAS',1))).toUpperCase().replace(/[^ACGTRYSWKMBDHVN]/g,'N');if(!sequence)throw Error('This AB1 file has no readable PBAS base calls.');let peaks=numbers(field('PLOC',2)||field('PLOC',1));let quals=numbers(field('PCON',2)||field('PCON',1));let order=textEntry(field('FWO_',1)).toUpperCase().replace(/[^ACGT]/g,'');if(order.length!==4||new Set(order).size!==4)order='GATC';let traces={};let hasProcessed=[9,10,11,12].every(x=>field('DATA',x));let first=hasProcessed?9:1;for(let j=0;j<4;j++){const data=numbers(field('DATA',first+j));if(data.length)traces[order[j]]=data;}
+const sizes=Object.values(traces).map(x=>x.length);if(sizes.length!==4||new Set(sizes).size!==1)throw Error('Could not find four compatible fluorescent dye traces (DATA entries).');const numSamples=sizes[0],warnings=[];if(peaks.length!==sequence.length||peaks.some((p,i)=>p>=numSamples||(i>0&&p<=peaks[i-1]))){if(peaks.length!==sequence.length||!peaks.length){warnings.push('PEAK POSITIONS ESTIMATED');peaks=Array.from({length:sequence.length},(_,i)=>Math.round((i+.5)*numSamples/sequence.length));}else{throw Error('AB1 peak positions are invalid or out of range.')}}if(quals.length!==sequence.length){quals=[];warnings.push('NO PHRED SCORES')}if(!hasProcessed)warnings.push('RAW DYE CHANNELS');return {sequence,locations:peaks,qualities:quals,traces,numSamples,warnings};}
+function demoTrace(){let seed=1792;function rand(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;}let sequence='';const motif='AGTTTGATCCTGGCTCAGGATGAACGCTGGCGGCATGCCTAATACATGCAAGTCGAACGATGAAGCTTCTTCGGAGCTTGCTCTGAT';for(let i=0;i<232;i++)sequence+=motif[i%motif.length];const locations=[],qualities=[],step=14;let p=18;for(let i=0;i<sequence.length;i++){p+=step+Math.round((rand()-.5)*5);locations.push(p);qualities.push(Math.max(6,Math.min(45,Math.round(8+Math.min(i,sequence.length-1-i)*.63+(rand()-.5)*13))))}const numSamples=p+28,traces={A:new Array(numSamples).fill(0),C:new Array(numSamples).fill(0),G:new Array(numSamples).fill(0),T:new Array(numSamples).fill(0)};for(let i=0;i<sequence.length;i++){const ch=sequence[i],center=locations[i],height=(90+rand()*50)*Math.min(1,qualities[i]/29),sigma=2.15+rand()*1.15;for(let k=-11;k<=11;k++){const s=center+k;if(s<0||s>=numSamples)continue;traces[ch][s]+=height*Math.exp(-k*k/(2*sigma*sigma));for(const other of Object.keys(traces))if(other!==ch)traces[other][s]+=height*.025*rand()*Math.exp(-k*k/24)}}for(const ch of Object.keys(traces))for(let k=0;k<numSamples;k++)traces[ch][k]=Math.round(traces[ch][k]+rand()*3.2);return {sequence,locations,qualities,traces,numSamples,warnings:[]};}
+function setData(parsed,name,demo=false){Object.assign(state,parsed,{name,demo,reverse:false,complement:false,selection:{anchor:null,end:null},findHits:[],activeFind:null});buffer.value='';scroll.scrollTop=0;buildRows();refreshSize();updateBuffer();if(!demo)notify('Opened: '+parsed.sequence.length+' bases');}
+$('importBtn').addEventListener('click',()=>$('importFile').click());$('importFile').addEventListener('change',async ev=>{const file=ev.target.files?.[0];if(!file)return;try{const parsed=readAb1(await file.arrayBuffer());setData(parsed,file.name,false)}catch(e){notify('Import failed: '+e.message);console.error(e)}ev.target.value='';});
+$('reverseBtn').addEventListener('click',()=>transform('reverse'));
+$('complementBtn').addEventListener('click',()=>transform('complement'));
+async function writeClipboard(str){try{await navigator.clipboard.writeText(str);return true}catch(_){return false}}
+$('copyBtn').addEventListener('click',()=>{const selected=chosenSequence();if(!selected){notify('Tap one base, then another to select a range.');return}buffer.value+=selected;updateBuffer();void writeClipboard(selected);notify('Added '+selected.length+' bases to buffer');});
+$('pasteBtn').addEventListener('click',async()=>{try{const pasted=await navigator.clipboard.readText();const seq=cleanSequence(pasted);if(!seq){notify('Clipboard has no DNA sequence');return}buffer.value+=seq;updateBuffer();notify('Pasted '+seq.length+' bases');}catch(_){buffer.focus();notify('Long-press in the buffer and choose Paste');}});
+$('clearBtn').addEventListener('click',()=>{buffer.value='';updateBuffer();notify('Sequence buffer cleared');});buffer.addEventListener('input',updateBuffer);
+function exportFasta(){const seq=cleanSequence(buffer.value);if(!seq){notify('Sequence buffer is empty — copy bases first');return}const name=state.name.replace(/\.(ab1|abi)$/i,'')||'sequence';const header=name.replace(/[^A-Za-z0-9_.-]/g,'_');const body='>'+header+'\n'+(seq.match(/.{1,70}/g)||[]).join('\n')+'\n';const blob=new Blob([body],{type:'text/plain;charset=utf-8'});const a=document.createElement('a');const url=URL.createObjectURL(blob);a.href=url;a.download=header+'.fasta';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);notify('Saved '+header+'.fasta');}
+$('exportBtn').addEventListener('click',exportFasta);
+// Open NCBI's STANDARD nucleotide database search page, with the query prefilled.
+// Do not use CMD=Put here: that invokes the Common URL API rather than NCBI's
+// familiar interactive database-search form (with Descriptions / species hits).
+// PAGE=Nucleotides and PAGE_TYPE=BlastSearch explicitly select database search;
+// unlike BLAST_SPEC=blast2seq this does not enter pairwise sequence alignment.
+// Native <a target="_blank"> click keeps mobile browsers from blocking the tab.
+const blastLink=$('blastBtn');
+blastLink.addEventListener('click',e=>{
+  const seq=cleanSequence(buffer.value)||chosenSequence();
+  if(!seq){e.preventDefault();notify('Copy bases into the buffer, or select bases in the trace');return;}
+  const url=new URL('https://blast.ncbi.nlm.nih.gov/Blast.cgi');
+  url.searchParams.set('PAGE_TYPE','BlastSearch');
+  url.searchParams.set('PAGE','Nucleotides');
+  url.searchParams.set('PROGRAM','blastn');
+  url.searchParams.set('QUERY',seq);
+  // The website applies its default database and Megablast settings.
+  // Let NCBI handle the final submission from its standard search page.
+  blastLink.href=url.toString();
+  notify('Sequence loaded for NCBI BLASTN · press BLAST on NCBI');
+});
+// FIND: match entered motif against the currently displayed base calls in any orientation.
+function variants(query,all){const reverse=[...query].reverse().join('');const complement=[...query].map(b=>baseMap[b]||'N').join('');const rc=[...complement].reverse().join('');return all?[['FORWARD',query],['REVERSE',reverse],['COMPLEMENT',complement],['REV-COMP',rc]]:[['FORWARD',query]];}
+function runFind(){const query=cleanSequence($('findQuery').value),results=$('find-results'),summary=$('find-summary');results.replaceChildren();state.findHits=[];state.activeFind=null;if(!query){summary.textContent='Enter a DNA sequence to find its positions.';updateSelectionStyles();return}if(query.length>state.sequence.length){summary.textContent='Query is longer than the trace.';updateSelectionStyles();return}
+const bases=currentBases(),v=variants(query,$('findAll').checked);const hitMap=new Map();for(const [type,pat] of v){for(let from=0;;){const pos=bases.indexOf(pat,from);if(pos<0)break;const key=pos+':'+(pos+pat.length-1);if(!hitMap.has(key))hitMap.set(key,{start:pos,end:pos+pat.length-1,types:[]});hitMap.get(key).types.push(type);from=pos+1;}}state.findHits=Array.from(hitMap.values()).sort((a,b)=>a.start-b.start);const counts=v.map(([type])=>type+': '+state.findHits.filter(h=>h.types.includes(type)).length);summary.textContent=state.findHits.length+' unique location'+(state.findHits.length===1?'':'s')+' • '+counts.join('  /  ');
+if(!state.findHits.length){const note=document.createElement('div');note.textContent='NO MATCHES IN TRACE';note.style.cssText='padding:15px;text-align:center;color:#667d70;font-weight:bold;font-size:12px';results.appendChild(note)}
+const shown=state.findHits.slice(0,120);for(const [index,hit] of shown.entries()){const b=document.createElement('button');b.type='button';const tags=document.createElement('span');tags.className='find-tag';tags.textContent=hit.types.join(' / ');const pos=document.createElement('span');pos.className='find-pos';pos.textContent=(hit.start+1)+'–'+(hit.end+1);const label=document.createElement('span');label.textContent=bases.slice(hit.start,Math.min(hit.end+1,hit.start+16))+(hit.end-hit.start+1>16?'…':'');b.append(tags,label,pos);b.addEventListener('click',()=>jumpToFind(index));results.appendChild(b)}if(state.findHits.length>shown.length){const note=document.createElement('p');note.textContent='Showing first 120 locations';results.appendChild(note)}updateSelectionStyles();}
+function jumpToFind(index){const hit=state.findHits[index];if(!hit)return;state.selection={anchor:hit.start,end:hit.end};state.activeFind=index;updateHeader();updateSelectionStyles();$('find-overlay').classList.remove('open');const row=scroll.querySelector('.trace-row[data-start="'+(Math.floor(hit.start/24)*24)+'"]');if(row)scroll.scrollTop=row.offsetTop;notify(hit.types.join(' + ')+' • bases '+(hit.start+1)+'–'+(hit.end+1));}
+function openFind(){$('find-overlay').classList.add('open');runFind();$('findQuery').focus();}
+$('searchBtn').addEventListener('click',openFind);
+$('findClose').addEventListener('click',()=>$('find-overlay').classList.remove('open'));
+$('find-overlay').addEventListener('click',e=>{if(e.target===$('find-overlay'))$('find-overlay').classList.remove('open')});
+$('findQuery').addEventListener('input',runFind);$('findAll').addEventListener('change',runFind);
+$('findQuery').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();jumpToFind(0)}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$('find-overlay').classList.remove('open')});
+// Optional desktop drag-and-drop import.
+document.addEventListener('dragover',e=>{if([...e.dataTransfer?.items||[]].some(x=>x.kind==='file'))e.preventDefault()});document.addEventListener('drop',async e=>{if(!e.dataTransfer?.files?.length)return;e.preventDefault();try{const file=e.dataTransfer.files[0];setData(readAb1(await file.arrayBuffer()),file.name,false)}catch(err){notify('Import failed: '+err.message)}});
+// Trace rows are redrawn rather than stretching low-resolution canvases.
+const resizeObserver=new ResizeObserver(refreshSize);resizeObserver.observe(scroll);window.addEventListener('resize',refreshSize);
+setData(demoTrace(),'demo_trace.ab1',true);
+})();
+</script>
+</body>
+</html>
